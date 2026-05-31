@@ -1,8 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
@@ -120,21 +120,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _changeAvatar() async {
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 30, maxWidth: 400);
     if (pickedFile == null) return;
 
     final user = _auth.currentUser;
     if (user == null) return;
 
     final file = File(pickedFile.path);
-    final ref = FirebaseStorage.instance.ref().child('avatars/${user.uid}.jpg');
+    final bytes = await file.readAsBytes();
+    final base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
 
-    await ref.putFile(file);
-    final url = await ref.getDownloadURL();
+    await _firestore.collection('users').doc(user.uid).update({'avatarUrl': base64Image});
 
-    await _firestore.collection('users').doc(user.uid).update({'avatarUrl': url});
-
-    setState(() => _avatarUrl = url);
+    setState(() => _avatarUrl = base64Image);
   }
 
   Future<void> _toggleNotifications(bool value) async {

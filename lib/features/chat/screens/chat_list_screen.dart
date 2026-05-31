@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -15,6 +16,14 @@ class ChatListScreen extends StatefulWidget {
 class _ChatListScreenState extends State<ChatListScreen> {
   int _currentTabIndex = 0;
   final _currentUser = FirebaseAuth.instance.currentUser;
+
+  ImageProvider _getImageProvider(String url) {
+    if (url.startsWith('data:image')) {
+      final base64Str = url.split(',').last;
+      return MemoryImage(base64Decode(base64Str));
+    }
+    return CachedNetworkImageProvider(url);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,10 +75,131 @@ class _ChatListScreenState extends State<ChatListScreen> {
       case 1:
         return const Center(child: Text('Calls - Tùy chọn'));
       case 2:
-        return const Center(child: Text('People - Tùy chọn'));
+        return _buildPeopleList();
       default:
         return _buildChatList();
     }
+  }
+
+  Widget _buildPeopleList() {
+    if (_currentUser == null) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(child: Text('Lỗi: ${snapshot.error}'));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text('Không có người dùng'));
+        }
+
+        final users = snapshot.data!.docs
+            .where((doc) => doc.id != _currentUser!.uid)
+            .toList();
+
+        if (users.isEmpty) {
+          return const Center(
+            child: Text('Chưa có người dùng khác', style: TextStyle(color: AppColors.textSecondary)),
+          );
+        }
+
+        return ListView.separated(
+          itemCount: users.length,
+          separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+          itemBuilder: (context, index) {
+            final user = users[index].data() as Map<String, dynamic>;
+            final userId = users[index].id;
+            final displayName = user['displayName'] ?? 'Unknown';
+            final email = user['email'] ?? '';
+            final avatarUrl = user['avatarUrl'] ?? '';
+            final isOnline = user['isOnline'] ?? false;
+
+            return ListTile(
+              leading: Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                    backgroundImage: avatarUrl.isNotEmpty ? _getImageProvider(avatarUrl) : null,
+                    child: avatarUrl.isEmpty
+                        ? Text(
+                            displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                            style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
+                          )
+                        : null,
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: isOnline ? AppColors.success : AppColors.textSecondary,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+              trailing: Text(
+                isOnline ? 'Online' : 'Offline',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isOnline ? AppColors.success : AppColors.textSecondary,
+                ),
+              ),
+              onTap: () => _startChatWithUser(userId, displayName),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _startChatWithUser(String otherUserId, String otherUserName) async {
+    final existingChat = await FirebaseFirestore.instance
+        .collection('chats')
+        .where('participants', arrayContains: _currentUser!.uid)
+        .get();
+
+    String? existingChatId;
+    for (final doc in existingChat.docs) {
+      final participants = List<String>.from(doc['participants'] ?? []);
+      if (participants.contains(otherUserId) && participants.length == 2) {
+        existingChatId = doc.id;
+        break;
+      }
+    }
+
+    if (existingChatId != null) {
+      if (!mounted) return;
+      Navigator.pushNamed(context, AppRoutes.chatDetail,
+          arguments: {'chatId': existingChatId, 'chatName': otherUserName});
+      return;
+    }
+
+    final chatDoc = await FirebaseFirestore.instance.collection('chats').add({
+      'participants': [_currentUser!.uid, otherUserId],
+      'createdAt': FieldValue.serverTimestamp(),
+      'createdBy': _currentUser!.uid,
+      'lastMessage': '',
+      'lastMessageTime': FieldValue.serverTimestamp(),
+      'chatName': '',
+    });
+
+    if (!mounted) return;
+    Navigator.pushNamed(context, AppRoutes.chatDetail,
+        arguments: {'chatId': chatDoc.id, 'chatName': otherUserName});
   }
 
   Widget _buildChatList() {
@@ -79,11 +209,27 @@ class _ChatListScreenState extends State<ChatListScreen> {
       stream: FirebaseFirestore.instance
           .collection('chats')
           .where('participants', arrayContains: _currentUser!.uid)
-          .orderBy('lastMessageTime', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+                const SizedBox(height: 12),
+                Text(
+                  'Lỗi tải dữ liệu: ${snapshot.error}',
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
@@ -107,7 +253,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
           );
         }
 
-        final chats = snapshot.data!.docs;
+        final chats = snapshot.data!.docs.toList()
+          ..sort((a, b) {
+            final aTime = (a.data() as Map<String, dynamic>)['lastMessageTime'] as Timestamp?;
+            final bTime = (b.data() as Map<String, dynamic>)['lastMessageTime'] as Timestamp?;
+            if (aTime == null && bTime == null) return 0;
+            if (aTime == null) return 1;
+            if (bTime == null) return -1;
+            return bTime.compareTo(aTime);
+          });
         return ListView.separated(
           itemCount: chats.length,
           separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
@@ -175,7 +329,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           leading: CircleAvatar(
             radius: 24,
             backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-            backgroundImage: avatarUrl.isNotEmpty ? CachedNetworkImageProvider(avatarUrl) : null,
+            backgroundImage: avatarUrl.isNotEmpty ? _getImageProvider(avatarUrl) : null,
             child: avatarUrl.isEmpty
                 ? Text(
                     displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',

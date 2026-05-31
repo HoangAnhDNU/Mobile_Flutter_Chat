@@ -1,9 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../widgets/message_bubble.dart';
@@ -67,18 +67,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   Future<void> _sendImage(ImageSource source) async {
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: source, imageQuality: 70);
+    final pickedFile = await picker.pickImage(source: source, imageQuality: 30, maxWidth: 800);
     if (pickedFile == null) return;
 
     setState(() => _isSendingImage = true);
 
     try {
       final file = File(pickedFile.path);
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${_currentUser!.uid}.jpg';
-      final ref = FirebaseStorage.instance.ref().child('chat_images/$_chatId/$fileName');
-
-      await ref.putFile(file);
-      final imageUrl = await ref.getDownloadURL();
+      final bytes = await file.readAsBytes();
+      final base64Image = base64Encode(bytes);
 
       await _firestore.collection('chats').doc(_chatId).collection('messages').add({
         'text': '',
@@ -86,7 +83,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         'senderName': _currentUser!.displayName ?? 'Unknown',
         'timestamp': FieldValue.serverTimestamp(),
         'type': 'image',
-        'imageUrl': imageUrl,
+        'imageBase64': base64Image,
         'isEdited': false,
       });
 
@@ -97,7 +94,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Gửi ảnh thất bại. Vui lòng thử lại.'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('Gửi ảnh thất bại: ${e.toString().length > 80 ? e.toString().substring(0, 80) : e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
       );
     } finally {
       if (mounted) setState(() => _isSendingImage = false);
@@ -263,6 +264,40 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     });
   }
 
+  void _showClearChatConfirm() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Xóa lịch sử chat'),
+        content: const Text('Tất cả tin nhắn sẽ bị xóa. Bạn có chắc?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Hủy'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final messages = await _firestore
+                  .collection('chats')
+                  .doc(_chatId)
+                  .collection('messages')
+                  .get();
+              for (final doc in messages.docs) {
+                await doc.reference.delete();
+              }
+              await _firestore.collection('chats').doc(_chatId).update({
+                'lastMessage': '',
+                'lastMessageTime': null,
+              });
+            },
+            child: const Text('Xóa', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _cancelEditing() {
     setState(() {
       _isEditing = false;
@@ -322,9 +357,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             icon: const Icon(Icons.call_outlined),
             onPressed: () {},
           ),
-          IconButton(
+          PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onPressed: () {},
+            onSelected: (value) {
+              switch (value) {
+                case 'group_settings':
+                  Navigator.pushNamed(context, '/group-settings', arguments: {'chatId': _chatId});
+                  break;
+                case 'clear_chat':
+                  _showClearChatConfirm();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'group_settings', child: Text('Cài đặt nhóm')),
+              const PopupMenuItem(value: 'clear_chat', child: Text('Xóa lịch sử chat')),
+            ],
           ),
         ],
       ),
@@ -378,6 +426,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               isEdited: msg['isEdited'] ?? false,
               type: msg['type'] ?? 'text',
               imageUrl: msg['imageUrl'],
+              imageBase64: msg['imageBase64'],
               onLongPress: () => _showMessageOptions(
                 messageId,
                 msg['text'] ?? '',
@@ -394,7 +443,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).scaffoldBackgroundColor,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
+import '../../../core/utils/account_manager.dart';
 import '../providers/auth_provider.dart';
 import '../../../widgets/loading_overlay.dart';
 
@@ -17,6 +18,18 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  List<SavedAccount> _savedAccounts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedAccounts();
+  }
+
+  Future<void> _loadSavedAccounts() async {
+    final accounts = await AccountManager.getSavedAccounts();
+    if (mounted) setState(() => _savedAccounts = accounts);
+  }
 
   @override
   void dispose() {
@@ -27,16 +40,27 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
+    await _doLogin(_emailController.text, _passwordController.text);
+  }
 
+  Future<void> _quickLogin(SavedAccount account) async {
+    await _doLogin(account.email, account.password);
+  }
+
+  Future<void> _doLogin(String email, String password) async {
     final authProvider = context.read<AuthProvider>();
-    final success = await authProvider.login(
-      _emailController.text,
-      _passwordController.text,
-    );
+    final success = await authProvider.login(email, password);
 
     if (!mounted) return;
 
     if (success) {
+      final user = authProvider.currentUser;
+      await AccountManager.saveAccount(
+        email: email,
+        password: password,
+        displayName: user?.displayName ?? email.split('@')[0],
+      );
+      if (!mounted) return;
       Navigator.pushReplacementNamed(context, AppRoutes.chatList);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -44,6 +68,16 @@ class _LoginScreenState extends State<LoginScreen> {
           content: Text(authProvider.errorMessage ?? 'Đăng nhập thất bại'),
           backgroundColor: AppColors.error,
         ),
+      );
+    }
+  }
+
+  Future<void> _removeAccount(SavedAccount account) async {
+    await AccountManager.removeAccount(account.email);
+    await _loadSavedAccounts();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Đã xóa tài khoản ${account.email}')),
       );
     }
   }
@@ -56,7 +90,6 @@ class _LoginScreenState extends State<LoginScreen> {
       isLoading: authProvider.isLoading,
       message: 'Đang đăng nhập...',
       child: Scaffold(
-      backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -64,7 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
             key: _formKey,
             child: Column(
               children: [
-                const SizedBox(height: 80),
+                const SizedBox(height: 60),
                 Container(
                   width: 64,
                   height: 64,
@@ -95,7 +128,65 @@ class _LoginScreenState extends State<LoginScreen> {
                     color: AppColors.textSecondary,
                   ),
                 ),
-                const SizedBox(height: 40),
+
+                // Saved accounts section
+                if (_savedAccounts.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Chuyển nhanh tài khoản',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...(_savedAccounts.map((account) => Card(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: AppColors.divider),
+                    ),
+                    child: ListTile(
+                      dense: true,
+                      leading: CircleAvatar(
+                        radius: 18,
+                        backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                        child: Text(
+                          account.displayName.isNotEmpty
+                              ? account.displayName[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        account.displayName,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                      ),
+                      subtitle: Text(
+                        account.email,
+                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close, size: 18, color: AppColors.textSecondary),
+                        onPressed: () => _removeAccount(account),
+                      ),
+                      onTap: authProvider.isLoading ? null : () => _quickLogin(account),
+                    ),
+                  ))),
+                  const Divider(height: 24),
+                ],
+
+                if (_savedAccounts.isEmpty) const SizedBox(height: 40),
+
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,

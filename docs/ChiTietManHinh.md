@@ -32,6 +32,7 @@
 ### Chức năng
 - Nhập email và mật khẩu.
 - Nút "Đăng nhập".
+- **Chuyển nhanh tài khoản**: Hiển thị danh sách tài khoản đã đăng nhập trước đó (lưu trong SharedPreferences), tap để đăng nhập ngay mà không cần nhập lại. Có nút X để xóa tài khoản đã lưu.
 - Link "Quên mật khẩu?" (tùy chọn).
 - Link "Chưa có tài khoản? Đăng ký" → chuyển sang màn hình Register.
 - Nút đăng nhập nhanh qua Google (tùy chọn).
@@ -110,7 +111,7 @@
   - Column chứa tên, tin nhắn cuối, thời gian.
   - Badge số tin chưa đọc (nếu > 0).
 - FloatingActionButton: icon compose (+) để tạo chat mới.
-- **BottomNavigationBar**: 3 tab – **Chats** (danh sách chat) | **Calls** (lịch sử cuộc gọi – tùy chọn) | **People** (danh sách người dùng).
+- **BottomNavigationBar**: 3 tab – **Chats** (danh sách chat) | **Calls** (lịch sử cuộc gọi – tùy chọn) | **People** (danh sách người dùng với trạng thái online/offline, tap để bắt đầu chat).
 
 ### Logic chính
 - Lấy danh sách cuộc trò chuyện từ Firestore:
@@ -136,10 +137,9 @@
 - Hiển thị trạng thái tin nhắn (gửi, đã gửi, đã xem).
 - Hiển thị người đang nhập (typing indicator) – tùy chọn.
 - Bấm vào avatar/tên → xem thông tin người dùng (profile nhỏ).
-- Menu 3 chấm (góc) →:
-  - Xem thông tin phòng chat / Cài đặt nhóm.
-  - Rời nhóm (nếu là nhóm).
-  - Xóa cuộc trò chuyện (cục bộ).
+- **PopupMenu 3 chấm** (góc) →:
+  - **Cài đặt nhóm** → chuyển sang màn hình Group Settings.
+  - **Xóa lịch sử chat** → xóa tất cả tin nhắn trong cuộc trò chuyện (có dialog xác nhận).
 - **Long-press vào tin nhắn** → hiện bottom sheet/menu:
   - **Xóa tin nhắn** (chỉ tin của chính mình, hoặc admin với tin nhắn nhóm).
   - **Chỉnh sửa tin nhắn** (chỉ tin văn bản của chính mình, hiển thị `(đã chỉnh sửa)`).

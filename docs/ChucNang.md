@@ -27,13 +27,14 @@
 - `provider` hoặc `riverpod`: Quản lý trạng thái (state management)
 - `intl`: Định dạng ngày giờ, ngôn ngữ
 - `cached_network_image`: Tăng tốc load ảnh avatar
-- `shared_preferences`: Lưu cài đặt đơn giản (Local Storage) dạng key-value (token, chế độ tối/sáng, v.v.)
+- `shared_preferences`: Lưu cài đặt đơn giản (Local Storage) dạng key-value (token, chế độ tối/sáng, tài khoản đã lưu, v.v.)
 
 ## 2. Chức năng chính (Functional Requirements)
 
 ### 2.1. Quản lý người dùng
 - Đăng ký tài khoản (email + mật khẩu, hoặc đăng nhập qua Google)
 - Đăng nhập / Đăng xuất
+- **Chuyển nhanh tài khoản** (Quick Account Switch): Lưu tài khoản đã đăng nhập vào SharedPreferences, cho phép chuyển tài khoản bằng một lần tap mà không cần nhập lại email/mật khẩu
 - Hiển thị thông tin người dùng: tên, avatar, trạng thái (online/offline)
 
 ### 2.2. Chat thời gian thực

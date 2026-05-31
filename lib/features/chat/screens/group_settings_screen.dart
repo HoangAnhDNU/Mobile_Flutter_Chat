@@ -1,8 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
@@ -51,16 +51,15 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
   Future<void> _changeGroupAvatar() async {
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 30, maxWidth: 400);
     if (pickedFile == null) return;
 
     final file = File(pickedFile.path);
-    final ref = FirebaseStorage.instance.ref().child('group_avatars/$_chatId.jpg');
-    await ref.putFile(file);
-    final url = await ref.getDownloadURL();
+    final bytes = await file.readAsBytes();
+    final base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
 
-    await _firestore.collection('chats').doc(_chatId).update({'groupAvatar': url});
-    setState(() => _groupAvatar = url);
+    await _firestore.collection('chats').doc(_chatId).update({'groupAvatar': base64Image});
+    setState(() => _groupAvatar = base64Image);
   }
 
   Future<void> _removeMember(String userId) async {

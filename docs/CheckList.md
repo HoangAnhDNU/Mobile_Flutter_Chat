@@ -29,6 +29,8 @@
 - [x] Xử lý lỗi: hiển thị SnackBar (sai email/mật khẩu, lỗi mạng)
 - [x] Link chuyển sang Register
 - [x] Link chuyển sang Forgot Password
+- [x] **Quick Account Switch**: Lưu tài khoản đã đăng nhập, hiển thị danh sách chuyển nhanh
+- [x] Hỗ trợ dark mode (sử dụng theme color thay vì hardcoded)
 
 ### Màn hình Register
 - [x] Giao diện: TextField email, mật khẩu, xác nhận mật khẩu, tên hiển thị
@@ -52,14 +54,15 @@
 ### Màn hình Chat List
 - [x] Giao diện: AppBar, ListView danh sách chat, FAB tạo chat mới
 - [x] Mỗi item: avatar, tên, tin nhắn cuối, thời gian, badge chưa đọc
-- [x] **BottomNavigationBar**: 3 tab – Chats | Calls (tùy chọn) | People
-- [x] Lắng nghe real-time từ Firestore collection `chats` (onSnapshot)
+- [x] **BottomNavigationBar**: 3 tab – Chats | Calls (tùy chọn) | **People** (danh sách người dùng, trạng thái online, tap để chat)
+- [x] Lắng nghe real-time từ Firestore collection `chats` (onSnapshot) – sort local để tránh composite index
+- [x] Xử lý lỗi Firestore (hiển thị thông báo lỗi khi query thất bại)
 - [x] Bấm item → Navigator.push sang Chat Detail
 - [x] Bấm FAB → Navigator.push sang Create Chat
 - [x] Menu icon → Navigator.push sang Profile/Settings
 
 ### Màn hình Chat Detail – Gửi tin nhắn (Create)
-- [x] Giao diện: AppBar (avatar, tên, trạng thái, **icon gọi điện** (tùy chọn), menu 3 chấm), ListView tin nhắn, bottom bar (TextField, nút gửi)
+- [x] Giao diện: AppBar (avatar, tên, trạng thái, **icon gọi điện** (tùy chọn), **PopupMenu 3 chấm** (Cài đặt nhóm, Xóa lịch sử chat)), ListView tin nhắn, bottom bar (TextField, nút gửi)
 - [x] Message bubble: phải (mình gửi), trái (người khác)
 - [x] Hiển thị: nội dung, thời gian, trạng thái gửi
 - [x] Validate tin nhắn không trống
@@ -96,9 +99,9 @@
 
 ### Gửi ảnh trong Chat Detail
 - [x] Icon đính kèm → chọn ảnh từ thư viện / chụp ảnh
-- [x] Upload ảnh lên Firebase Storage
-- [x] Ghi tin nhắn với `type: 'image'`, `imageUrl`
-- [x] Hiển thị ảnh trong bubble
+- [x] Encode ảnh thành Base64, lưu trực tiếp trong Firestore (không cần Firebase Storage plan Blaze)
+- [x] Ghi tin nhắn với `type: 'image'`, `imageBase64`
+- [x] Hiển thị ảnh trong bubble (hỗ trợ cả base64 và URL)
 
 ### Xóa/ẩn cuộc trò chuyện
 - [x] Swipe hoặc long-press trên Chat List → xóa cục bộ
@@ -107,7 +110,7 @@
 - [x] Giao diện: avatar lớn (icon camera để đổi), TextField tên, text email (chỉ đọc)
 - [x] Đọc thông tin từ `FirebaseAuth.currentUser` + Firestore `users/{userId}`
 - [x] Đổi tên hiển thị → cập nhật Firestore
-- [x] Đổi avatar → upload Firebase Storage → cập nhật Firestore
+- [x] Đổi avatar → encode Base64 → lưu vào Firestore
 - [x] Switch bật/tắt thông báo → lưu `shared_preferences`
 - [x] Chế độ tối/sáng → lưu `shared_preferences`
 - [x] Nút đăng xuất → `FirebaseAuth.signOut()` → quay về Login

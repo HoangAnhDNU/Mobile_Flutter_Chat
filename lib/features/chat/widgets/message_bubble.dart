@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -10,6 +11,7 @@ class MessageBubble extends StatelessWidget {
   final Timestamp? timestamp;
   final bool isEdited;
   final String? imageUrl;
+  final String? imageBase64;
   final String type;
   final VoidCallback? onLongPress;
 
@@ -21,6 +23,7 @@ class MessageBubble extends StatelessWidget {
     this.timestamp,
     this.isEdited = false,
     this.imageUrl,
+    this.imageBase64,
     this.type = 'text',
     this.onLongPress,
   });
@@ -49,7 +52,17 @@ class MessageBubble extends StatelessWidget {
           child: Column(
             crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              if (type == 'image' && imageUrl != null)
+              if (type == 'image' && imageBase64 != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.memory(
+                    base64Decode(imageBase64!),
+                    width: 200,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image),
+                  ),
+                )
+              else if (type == 'image' && imageUrl != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: CachedNetworkImage(
