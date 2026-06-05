@@ -1,6 +1,6 @@
 {
-    "name": "bai_tap_lon",
-    "short_name": "bai_tap_lon",
+    "name": "mobile_flutter_chat",
+    "short_name": "mobile_flutter_chat",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

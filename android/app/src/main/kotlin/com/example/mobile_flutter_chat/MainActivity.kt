@@ -1,4 +1,4 @@
-package com.example.bai_tap_lon
+package com.example.mobile_flutter_chat
 
 import io.flutter.embedding.android.FlutterActivity
 
