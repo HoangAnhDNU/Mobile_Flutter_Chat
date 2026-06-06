@@ -27,8 +27,8 @@ class User {
 
   static async updateOnlineStatus(uid, isOnline) {
     await pool.execute(
-      'UPDATE users SET is_online = ?, last_seen = ? WHERE uid = ?',
-      [isOnline, isOnline ? null : new Date(), uid]
+      'UPDATE users SET is_online = ?, last_seen = NOW() WHERE uid = ?',
+      [isOnline, uid]
     );
   }
 

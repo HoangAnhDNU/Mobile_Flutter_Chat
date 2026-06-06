@@ -19,7 +19,6 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _checkAuthAndNavigate() async {
     await Future.delayed(const Duration(seconds: 2));
-    await ApiService.init();
 
     if (!mounted) return;
 

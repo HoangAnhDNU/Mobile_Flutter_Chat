@@ -23,14 +23,18 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   String _adminId = '';
   bool _isEditing = false;
   bool _isLoading = true;
+  bool _initialized = false;
   List<Map<String, dynamic>> _participants = [];
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    _chatId = args?['chatId'] ?? 0;
-    _loadGroupInfo();
+    if (!_initialized) {
+      _initialized = true;
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      _chatId = args?['chatId'] ?? 0;
+      _loadGroupInfo();
+    }
   }
 
   @override

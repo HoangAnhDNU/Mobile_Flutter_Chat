@@ -19,13 +19,15 @@ class Chat {
   }
 
   static async findByParticipants(userUids) {
+    if (!userUids || userUids.length === 0) return null;
+    const placeholders = userUids.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT c.* FROM chats c
        JOIN chat_participants cp ON c.id = cp.chat_id
-       WHERE cp.user_uid IN (?)
+       WHERE cp.user_uid IN (${placeholders})
        GROUP BY c.id
        HAVING COUNT(DISTINCT cp.user_uid) = ?`,
-      [userUids, userUids.length]
+      [...userUids, userUids.length]
     );
     return rows[0];
   }
@@ -59,7 +61,7 @@ class Chat {
   static async updateTypingUser(chatId, uid) {
     await pool.execute(
       'UPDATE chats SET typing_user = ? WHERE id = ?',
-      [uid || null, chatId]
+      [uid ?? null, chatId]
     );
   }
 

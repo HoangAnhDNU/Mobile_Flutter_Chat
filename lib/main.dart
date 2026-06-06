@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/constants/app_routes.dart';
+import 'core/services/api_service.dart';
 import 'core/themes/app_theme.dart';
 import 'core/themes/theme_provider.dart';
 import 'features/auth/providers/auth_provider.dart';
@@ -17,6 +18,7 @@ import 'features/chat/screens/group_settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ApiService.init();
   runApp(const MyApp());
 }
 

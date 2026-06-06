@@ -32,14 +32,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   late int _chatId;
   late String _chatName;
+  bool _initialized = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    _chatId = args?['chatId'] ?? 0;
-    _chatName = args?['chatName'] ?? 'Chat';
-    _loadMessages();
+    if (!_initialized) {
+      _initialized = true;
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      _chatId = args?['chatId'] ?? 0;
+      _chatName = args?['chatName'] ?? 'Chat';
+      _loadMessages();
+    }
   }
 
   Future<void> _loadMessages() async {
