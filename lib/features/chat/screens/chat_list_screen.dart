@@ -115,7 +115,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
     return ListView.separated(
       itemCount: _users.length,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
       itemBuilder: (context, index) {
         final user = _users[index] as Map<String, dynamic>;
         final userId = user['uid'] as String;
@@ -212,7 +212,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
     return ListView.separated(
       itemCount: _chats.length,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
       itemBuilder: (context, index) {
         final chat = _chats[index] as Map<String, dynamic>;
         final chatId = chat['id'] as int;

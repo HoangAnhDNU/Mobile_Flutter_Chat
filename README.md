@@ -1,17 +1,45 @@
-# mobile_flutter_chat
+# Mobile Flutter Chat
 
-A new Flutter project.
+Ứng dụng chat realtime xây dựng bằng Flutter + Node.js + MySQL.
 
-## Getting Started
+## Tính năng
 
-This project is a starting point for a Flutter application.
+- Đăng nhập / Đăng ký / Quên mật khẩu
+- Chat 1-1 và nhóm (text, ảnh, voice)
+- WebSocket real-time messaging
+- Delivery & read receipts (✓ / ✓✓ / ✓✓ xanh)
+- Reply / Quote messages
+- Emoji reactions
+- Tìm kiếm tin nhắn
+- Pin / Delete for me / Delete for everyone
+- Mute / Archive chats
+- Block / Unblock users
+- Link preview
+- Dark mode / Light mode
 
-A few resources to get you started if this is your first Flutter project:
+## Cài đặt
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+### Backend
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+cd backend
+cp template.env .env   # Sửa thông tin trong .env
+npm install
+mysql -u root < database/schema.sql
+mysql -u root < database/migration_v2.sql
+npm run dev
+```
+
+### Flutter
+
+```bash
+flutter pub get
+flutter run
+```
+
+## Công nghệ
+
+- **Frontend**: Flutter, Provider, WebSocket
+- **Backend**: Node.js, Express, Socket.IO
+- **Database**: MySQL
+- **Auth**: JWT

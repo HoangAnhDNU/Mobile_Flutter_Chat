@@ -240,7 +240,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
 
     return ListView.separated(
       itemCount: filteredUsers.length,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
       itemBuilder: (context, index) {
         final user = filteredUsers[index] as Map<String, dynamic>;
         final userId = user['uid'] as String;
