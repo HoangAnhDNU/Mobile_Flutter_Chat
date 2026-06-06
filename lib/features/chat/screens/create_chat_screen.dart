@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
+import '../../../core/services/api_service.dart';
+import '../../auth/providers/auth_provider.dart';
 
 class CreateChatScreen extends StatefulWidget {
   const CreateChatScreen({super.key});
@@ -13,12 +14,28 @@ class CreateChatScreen extends StatefulWidget {
 
 class _CreateChatScreenState extends State<CreateChatScreen> {
   final _searchController = TextEditingController();
-  final _currentUser = FirebaseAuth.instance.currentUser;
-  final _firestore = FirebaseFirestore.instance;
+  List<dynamic> _users = [];
+  bool _isLoading = false;
   String _searchQuery = '';
   bool _isGroupMode = false;
   final Set<String> _selectedUserIds = {};
   final Map<String, String> _selectedUserNames = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  Future<void> _loadUsers() async {
+    setState(() => _isLoading = true);
+    try {
+      _users = await ApiService.getUsers();
+    } catch (e) {
+      debugPrint('Error loading users: $e');
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
 
   @override
   void dispose() {
@@ -27,44 +44,19 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
   }
 
   Future<void> _createChat(String otherUserId, String otherUserName) async {
-    final existingChat = await _firestore
-        .collection('chats')
-        .where('participants', arrayContains: _currentUser!.uid)
-        .get();
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid == null) return;
 
-    String? existingChatId;
-    for (final doc in existingChat.docs) {
-      final participants = List<String>.from(doc['participants'] ?? []);
-      if (participants.contains(otherUserId) && participants.length == 2) {
-        existingChatId = doc.id;
-        break;
-      }
-    }
-
-    if (existingChatId != null) {
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(
-        context,
-        AppRoutes.chatDetail,
-        arguments: {'chatId': existingChatId, 'chatName': otherUserName},
-      );
-      return;
-    }
-
-    final chatDoc = await _firestore.collection('chats').add({
-      'participants': [_currentUser!.uid, otherUserId],
-      'createdAt': FieldValue.serverTimestamp(),
-      'createdBy': _currentUser!.uid,
-      'lastMessage': '',
-      'lastMessageTime': FieldValue.serverTimestamp(),
-      'chatName': '',
-    });
+    final result = await ApiService.createChat(
+      participants: [authProvider.uid!, otherUserId],
+      createdBy: authProvider.uid!,
+    );
 
     if (!mounted) return;
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.chatDetail,
-      arguments: {'chatId': chatDoc.id, 'chatName': otherUserName},
+      arguments: {'chatId': result['chatId'], 'chatName': otherUserName},
     );
   }
 
@@ -97,26 +89,23 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
     );
 
     if (groupName == null || groupName.isEmpty) return;
+    if (!mounted) return;
 
-    final participants = [_currentUser!.uid, ..._selectedUserIds];
-    final chatDoc = await _firestore.collection('chats').add({
-      'participants': participants,
-      'createdAt': FieldValue.serverTimestamp(),
-      'createdBy': _currentUser!.uid,
-      'lastMessage': '',
-      'lastMessageTime': FieldValue.serverTimestamp(),
-      'chatName': groupName,
-      'groupName': groupName,
-      'groupAvatar': '',
-      'isGroup': true,
-      'adminId': _currentUser!.uid,
-    });
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid == null) return;
+
+    final participants = [authProvider.uid!, ..._selectedUserIds];
+    final result = await ApiService.createChat(
+      participants: participants,
+      createdBy: authProvider.uid!,
+      chatName: groupName,
+    );
 
     if (!mounted) return;
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.chatDetail,
-      arguments: {'chatId': chatDoc.id, 'chatName': groupName},
+      arguments: {'chatId': result['chatId'], 'chatName': groupName},
     );
   }
 
@@ -224,85 +213,81 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
   }
 
   Widget _buildUserList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _firestore.collection('users').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text('Không tìm thấy người dùng'));
-        }
+    if (_users.isEmpty) {
+      return const Center(child: Text('Không tìm thấy người dùng'));
+    }
 
-        final users = snapshot.data!.docs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          if (doc.id == _currentUser!.uid) return false;
+    final authProvider = context.read<AuthProvider>();
+    final filteredUsers = _users.where((user) {
+      final userData = user as Map<String, dynamic>;
+      if (userData['uid'] == authProvider.uid) return false;
 
-          if (_searchQuery.isNotEmpty) {
-            final name = (data['displayName'] ?? '').toString().toLowerCase();
-            final email = (data['email'] ?? '').toString().toLowerCase();
-            return name.contains(_searchQuery) || email.contains(_searchQuery);
-          }
-          return true;
-        }).toList();
+      if (_searchQuery.isNotEmpty) {
+        final name = (userData['display_name'] ?? '').toString().toLowerCase();
+        final email = (userData['email'] ?? '').toString().toLowerCase();
+        return name.contains(_searchQuery) || email.contains(_searchQuery);
+      }
+      return true;
+    }).toList();
 
-        if (users.isEmpty) {
-          return const Center(child: Text('Không tìm thấy người dùng'));
-        }
+    if (filteredUsers.isEmpty) {
+      return const Center(child: Text('Không tìm thấy người dùng'));
+    }
 
-        return ListView.separated(
-          itemCount: users.length,
-          separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
-          itemBuilder: (context, index) {
-            final user = users[index].data() as Map<String, dynamic>;
-            final userId = users[index].id;
-            final displayName = user['displayName'] ?? 'Unknown';
-            final email = user['email'] ?? '';
-            final avatarUrl = user['avatarUrl'] ?? '';
+    return ListView.separated(
+      itemCount: filteredUsers.length,
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      itemBuilder: (context, index) {
+        final user = filteredUsers[index] as Map<String, dynamic>;
+        final userId = user['uid'] as String;
+        final displayName = user['display_name'] ?? 'Unknown';
+        final email = user['email'] ?? '';
+        final avatarUrl = user['avatar_url'] ?? '';
 
-            return ListTile(
-              leading: CircleAvatar(
-                radius: 24,
-                backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                child: avatarUrl.isEmpty
-                    ? Text(
-                        displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
-                      )
-                    : null,
-              ),
-              title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-              trailing: _isGroupMode
-                  ? Checkbox(
-                      value: _selectedUserIds.contains(userId),
-                      onChanged: (checked) => setState(() {
-                        if (checked == true) {
-                          _selectedUserIds.add(userId);
-                          _selectedUserNames[userId] = displayName;
-                        } else {
-                          _selectedUserIds.remove(userId);
-                          _selectedUserNames.remove(userId);
-                        }
-                      }),
-                      activeColor: AppColors.primary,
-                    )
-                  : null,
-              onTap: _isGroupMode
-                  ? () => setState(() {
-                        if (_selectedUserIds.contains(userId)) {
-                          _selectedUserIds.remove(userId);
-                          _selectedUserNames.remove(userId);
-                        } else {
-                          _selectedUserIds.add(userId);
-                          _selectedUserNames[userId] = displayName;
-                        }
-                      })
-                  : () => _createChat(userId, displayName),
-            );
-          },
+        return ListTile(
+          leading: CircleAvatar(
+            radius: 24,
+            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+            backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+            child: avatarUrl.isEmpty
+                ? Text(
+                    displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                    style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
+                  )
+                : null,
+          ),
+          title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          trailing: _isGroupMode
+              ? Checkbox(
+                  value: _selectedUserIds.contains(userId),
+                  onChanged: (checked) => setState(() {
+                    if (checked == true) {
+                      _selectedUserIds.add(userId);
+                      _selectedUserNames[userId] = displayName;
+                    } else {
+                      _selectedUserIds.remove(userId);
+                      _selectedUserNames.remove(userId);
+                    }
+                  }),
+                  activeColor: AppColors.primary,
+                )
+              : null,
+          onTap: _isGroupMode
+              ? () => setState(() {
+                    if (_selectedUserIds.contains(userId)) {
+                      _selectedUserIds.remove(userId);
+                      _selectedUserNames.remove(userId);
+                    } else {
+                      _selectedUserIds.add(userId);
+                      _selectedUserNames[userId] = displayName;
+                    }
+                  })
+              : () => _createChat(userId, displayName),
         );
       },
     );

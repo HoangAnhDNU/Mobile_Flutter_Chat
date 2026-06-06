@@ -54,11 +54,10 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (success) {
-      final user = authProvider.currentUser;
       await AccountManager.saveAccount(
         email: email,
         password: password,
-        displayName: user?.displayName ?? email.split('@')[0],
+        displayName: authProvider.displayName ?? email.split('@')[0],
       );
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, AppRoutes.chatList);

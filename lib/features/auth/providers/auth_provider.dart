@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../core/services/api_service.dart';
 
 class AuthProvider extends ChangeNotifier {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  String? _uid;
+  String? _email;
+  String? _displayName;
+  String? _avatarUrl;
 
-  User? get currentUser => _auth.currentUser;
-  bool get isLoggedIn => _auth.currentUser != null;
+  String? get uid => _uid;
+  String? get email => _email;
+  String? get displayName => _displayName;
+  String? get avatarUrl => _avatarUrl;
+  bool get isLoggedIn => ApiService.isLoggedIn;
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -30,17 +34,24 @@ class AuthProvider extends ChangeNotifier {
       _setLoading(true);
       _errorMessage = null;
 
-      await _auth.signInWithEmailAndPassword(
+      final result = await ApiService.login(
         email: email.trim(),
         password: password,
       );
 
+      if (result.containsKey('error')) {
+        _errorMessage = result['error'];
+        _setLoading(false);
+        return false;
+      }
+
+      _uid = result['user']['uid'];
+      _email = result['user']['email'];
+      _displayName = result['user']['displayName'];
+      _avatarUrl = result['user']['avatarUrl'];
+
       _setLoading(false);
       return true;
-    } on FirebaseAuthException catch (e) {
-      _errorMessage = _getErrorMessage(e.code);
-      _setLoading(false);
-      return false;
     } catch (e) {
       _errorMessage = 'Đã xảy ra lỗi. Vui lòng thử lại.';
       _setLoading(false);
@@ -57,29 +68,24 @@ class AuthProvider extends ChangeNotifier {
       _setLoading(true);
       _errorMessage = null;
 
-      final credential = await _auth.createUserWithEmailAndPassword(
+      final result = await ApiService.register(
         email: email.trim(),
         password: password,
+        displayName: displayName.trim(),
       );
 
-      await credential.user?.updateDisplayName(displayName.trim());
+      if (result.containsKey('error')) {
+        _errorMessage = result['error'];
+        _setLoading(false);
+        return false;
+      }
 
-      await _firestore.collection('users').doc(credential.user!.uid).set({
-        'uid': credential.user!.uid,
-        'email': email.trim(),
-        'displayName': displayName.trim(),
-        'avatarUrl': '',
-        'createdAt': FieldValue.serverTimestamp(),
-        'isOnline': true,
-        'lastSeen': FieldValue.serverTimestamp(),
-      });
+      _uid = result['user']['uid'];
+      _email = result['user']['email'];
+      _displayName = result['user']['displayName'];
 
       _setLoading(false);
       return true;
-    } on FirebaseAuthException catch (e) {
-      _errorMessage = _getErrorMessage(e.code);
-      _setLoading(false);
-      return false;
     } catch (e) {
       _errorMessage = 'Đã xảy ra lỗi. Vui lòng thử lại.';
       _setLoading(false);
@@ -92,12 +98,9 @@ class AuthProvider extends ChangeNotifier {
       _setLoading(true);
       _errorMessage = null;
 
-      await _auth.sendPasswordResetEmail(email: email.trim());
-
-      _setLoading(false);
-      return true;
-    } on FirebaseAuthException catch (e) {
-      _errorMessage = _getErrorMessage(e.code);
+      // Note: Password reset requires email service implementation
+      // For now, return success but user needs to implement email service
+      _errorMessage = 'Tính năng reset mật khẩu cần cấu hình email server.';
       _setLoading(false);
       return false;
     } catch (e) {
@@ -108,32 +111,12 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    await _auth.signOut();
+    await ApiService.logout();
+    _uid = null;
+    _email = null;
+    _displayName = null;
+    _avatarUrl = null;
     notifyListeners();
   }
 
-  String _getErrorMessage(String code) {
-    switch (code) {
-      case 'user-not-found':
-        return 'Không tìm thấy tài khoản với email này.';
-      case 'wrong-password':
-        return 'Mật khẩu không đúng.';
-      case 'invalid-email':
-        return 'Email không hợp lệ.';
-      case 'user-disabled':
-        return 'Tài khoản đã bị vô hiệu hóa.';
-      case 'email-already-in-use':
-        return 'Email này đã được sử dụng.';
-      case 'weak-password':
-        return 'Mật khẩu quá yếu.';
-      case 'too-many-requests':
-        return 'Quá nhiều yêu cầu. Vui lòng thử lại sau.';
-      case 'network-request-failed':
-        return 'Lỗi kết nối mạng. Vui lòng kiểm tra internet.';
-      case 'invalid-credential':
-        return 'Email hoặc mật khẩu không đúng.';
-      default:
-        return 'Đã xảy ra lỗi ($code). Vui lòng thử lại.';
-    }
-  }
 }

@@ -3,62 +3,79 @@
 ## 1. Công cụ và công nghệ sử dụng
 
 ### Framework & Ngôn ngữ
-- **Flutter**: Framework UI đa nền tảng của Google để xây dựng ứng dụng mobile [web:1]
-- **Dart**: Ngôn ngữ lập trình chính dùng để viết code Flutter [web:1]
+- **Flutter**: Framework UI đa nền tảng của Google để xây dựng ứng dụng mobile
+- **Dart**: Ngôn ngữ lập trình chính dùng để viết code Flutter
 
 ### Công cụ phát triển
 - **Flutter SDK**: Bộ công cụ phát triển Flutter chính thức
-- **Android Studio** hoặc **VS Code**: IDE để viết code, debug và chạy ứng dụng [web:1]
+- **Android Studio** hoặc **VS Code**: IDE để viết code, debug và chạy ứng dụng
 - **Flutter CLI**: Dòng lệnh để tạo project, chạy, build app (`flutter create`, `flutter run`, `flutter build`)
 - **Emulator**: Android Emulator hoặc iOS Simulator để test ứng dụng
 - **Git + GitHub/GitLab**: Quản lý phiên bản code
 
-### Backend & Dịch vụ (cho tính năng chat thời gian thực)
-- **Firebase Firestore** hoặc **Firebase Realtime Database**: Cơ sở dữ liệu thời gian thực, dễ tích hợp với Flutter [web:2]
-- **Firebase Authentication**: Xác thực người dùng (email/password, Google, v.v.)
-- **Firebase Cloud Messaging (FCM)**: Gửi thông báo đẩy (push notification) khi có tin nhắn mới
-- **(Tùy chọn) Backend tự xây dựng**: Node.js + Socket.io + MongoDB nếu muốn tự làm server
+### Backend & Dịch vụ
+- **Node.js + Express**: REST API server
+- **MySQL**: Cơ sở dữ liệu quan hệ
+- **Socket.IO**: WebSocket cho real-time messaging
+- **JWT (JSON Web Token)**: Xác thực người dùng
+- **bcrypt**: Mã hóa mật khẩu
 
 ### Package Flutter quan trọng
-- `firebase_core`: Khởi tạo Firebase
-- `cloud_firestore` hoặc `firebase_database`: Truy cập database thời gian thực
-- `firebase_auth`: Xác thực người dùng
-- `flutter_local_notifications` hoặc `firebase_messaging`: Xử lý push notification
-- `provider` hoặc `riverpod`: Quản lý trạng thái (state management)
+- `http`: HTTP client cho REST API calls
+- `web_socket_channel`: WebSocket client cho real-time
+- `provider`: Quản lý trạng thái (state management)
 - `intl`: Định dạng ngày giờ, ngôn ngữ
 - `cached_network_image`: Tăng tốc load ảnh avatar
 - `shared_preferences`: Lưu cài đặt đơn giản (Local Storage) dạng key-value (token, chế độ tối/sáng, tài khoản đã lưu, v.v.)
+- `flutter_local_notifications`: Thông báo local
+- `image_picker`: Chọn ảnh từ thư viện / chụp ảnh
+- `record`: Ghi âm voice message
+- `audioplayers`: Phát voice message
+- `any_link_preview`: Xem trước link URL
 
 ## 2. Chức năng chính (Functional Requirements)
 
 ### 2.1. Quản lý người dùng
-- Đăng ký tài khoản (email + mật khẩu, hoặc đăng nhập qua Google)
+- Đăng ký tài khoản (email + mật khẩu)
 - Đăng nhập / Đăng xuất
 - **Chuyển nhanh tài khoản** (Quick Account Switch): Lưu tài khoản đã đăng nhập vào SharedPreferences, cho phép chuyển tài khoản bằng một lần tap mà không cần nhập lại email/mật khẩu
 - Hiển thị thông tin người dùng: tên, avatar, trạng thái (online/offline)
+- **Chặn người dùng**: Chặn/bỏ chặn người dùng, không nhận tin nhắn từ người bị chặn
+- **Last seen**: Hiển thị thời gian online lần cuối
 
-### 2.2. Chat thời gian thực
-- Tạo và tham gia phòng chat (1–1:1 hoặc nhóm)
-- Gửi và nhận tin nhắn ngay lập tức (real-time)
+### 2.2. Chat thời gian thực (WebSocket)
+- Tạo và tham gia phòng chat (1–1 hoặc nhóm)
+- Gửi và nhận tin nhắn ngay lập tức (real-time via WebSocket)
 - Hiển thị danh sách tin nhắn theo thời gian:
   - Nội dung tin nhắn
   - Thời gian gửi
   - Người gửi
-  - Trạng thái: đã gửi, đã gửi thành công, đã xem
-- Hỗ trợ:
+  - **Trạng thái delivery**: đã gửi (✓), đã nhận (✓✓), đã đọc (✓✓ xanh)
+- Hỗ trợ loại tin nhắn:
   - Tin nhắn văn bản
   - Gửi ảnh (từ thư viện hoặc chụp ảnh)
-  - (Tùy chọn) Gửi emoji, sticker
-- **Xóa tin nhắn đơn lẻ**: long-press → xóa tin nhắn của chính mình (CRUD Delete)
+  - **Voice message** (ghi âm và gửi)
+  - **Link preview** (tự động xem trước URL)
+- **Xóa tin nhắn**:
+  - Long-press → xóa cho mình (Delete for me)
+  - Long-press → xóa cho tất cả (Delete for everyone)
 - **Chỉnh sửa tin nhắn**: long-press → sửa nội dung văn bản, hiển thị nhãn `(đã chỉnh sửa)` (CRUD Update)
+- **Trả lời tin nhắn** (Reply): long-press → Reply → hiển thị tin nhắn gốc trong bubble
+- **Phản ứng emoji** (Reactions): long-press → chọn emoji reaction, hiển thị dưới bubble
+- **Forward message**: Chuyển tiếp tin nhắn sang chat khác
+- **Pinned messages**: Ghim tin nhắn quan trọng lên đầu chat
 
 ### 2.3. Quản lý cuộc hội thoại
 - Danh sách cuộc trò chuyện (chat list)
-- Tìm kiếm tin nhắn hoặc người dùng
+- **Tìm kiếm tin nhắn**: Tìm kiếm nội dung tin nhắn trong cuộc hội thoại
+- **Tìm kiếm người dùng**: Tìm kiếm theo tên hoặc email
 - Xóa/ẩn cuộc trò chuyện (cục bộ)
-- Hiển thị người đang nhập (typing indicator) – tùy chọn
+- Hiển thị người đang nhập (typing indicator)
+- **Mute conversation**: Tắt thông báo cho cuộc hội thoại cụ thể
+- **Archive chats**: Lưu trữ cuộc trò chuyện
 
 ### 2.4. Quản lý nhóm (CRUD Conversation cho nhóm)
+- **Create**: Tạo nhóm với multi-select người dùng + tên nhóm
 - **Update**: Chỉnh sửa tên nhóm và ảnh đại diện nhóm (chỉ admin)
 - **Thêm thành viên**: Chọn người dùng từ danh sách để mời vào nhóm
 - **Xóa thành viên**: Admin có thể loại thành viên khỏi nhóm
@@ -66,7 +83,7 @@
 - Xem danh sách thành viên trong màn hình Group Settings
 
 ### 2.5. Xác thực nâng cao
-- **Quên mật khẩu**: Gửi email đặt lại mật khẩu qua `FirebaseAuth.sendPasswordResetEmail()`
+- **Quên mật khẩu**: Gửi email đặt lại mật khẩu
 
 ### 2.6. Giao diện điều hướng
 - **BottomNavigationBar** với 3 tab: **Chats** (danh sách chat) | **Calls** (lịch sử cuộc gọi – tùy chọn) | **People** (danh sách người dùng)
@@ -75,6 +92,12 @@
 ### 2.7. Thông báo
 - Nhận push notification khi có tin nhắn mới khi ứng dụng ở nền hoặc đóng
 - Hiển thị thông báo nhanh trên màn hình khóa
+- **In-app notification**: Hiển thị banner khi nhận tin nhắn mới trong app
+
+### 2.8. Tính năng nâng cao
+- **Message delivery & read receipts**: Trạng thái gửi/nhận/đọc cho mỗi tin nhắn
+- **Online presence**: Real-time online/offline status via WebSocket
+- **Unread count badge**: Hiển thị số tin nhắn chưa đọc trên chat list
 
 ## 3. Chức năng phi chức năng (Non-Functional Requirements)
 

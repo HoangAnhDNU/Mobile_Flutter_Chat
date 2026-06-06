@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
+import '../../../core/services/api_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -19,11 +19,11 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _checkAuthAndNavigate() async {
     await Future.delayed(const Duration(seconds: 2));
+    await ApiService.init();
 
     if (!mounted) return;
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
+    if (ApiService.isLoggedIn) {
       Navigator.pushReplacementNamed(context, AppRoutes.chatList);
     } else {
       Navigator.pushReplacementNamed(context, AppRoutes.login);

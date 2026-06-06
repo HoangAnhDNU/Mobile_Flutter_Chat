@@ -2,10 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_service.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../widgets/message_bubble.dart';
 
 class ChatDetailScreen extends StatefulWidget {
@@ -17,22 +18,38 @@ class ChatDetailScreen extends StatefulWidget {
 
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final _messageController = TextEditingController();
+  final _searchController = TextEditingController();
   final _scrollController = ScrollController();
-  final _currentUser = FirebaseAuth.instance.currentUser;
-  final _firestore = FirebaseFirestore.instance;
+  List<dynamic> _messages = [];
+  bool _isLoading = false;
+  bool _isSearching = false;
 
   String? _editingMessageId;
   bool _isEditing = false;
 
-  late String _chatId;
+  // Reply state
+  Map<String, dynamic>? _replyingTo;
+
+  late int _chatId;
   late String _chatName;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    _chatId = args?['chatId'] ?? '';
+    _chatId = args?['chatId'] ?? 0;
     _chatName = args?['chatName'] ?? 'Chat';
+    _loadMessages();
+  }
+
+  Future<void> _loadMessages() async {
+    setState(() => _isLoading = true);
+    try {
+      _messages = await ApiService.getMessages(_chatId);
+    } catch (e) {
+      debugPrint('Error loading messages: $e');
+    }
+    if (mounted) setState(() => _isLoading = false);
   }
 
   @override
@@ -43,54 +60,82 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<void> _sendMessage() async {
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid == null) return;
+
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
     _messageController.clear();
 
-    await _firestore.collection('chats').doc(_chatId).collection('messages').add({
-      'text': text,
-      'senderId': _currentUser!.uid,
-      'senderName': _currentUser!.displayName ?? 'Unknown',
-      'timestamp': FieldValue.serverTimestamp(),
-      'type': 'text',
-      'isEdited': false,
-    });
+    if (_replyingTo != null) {
+      await ApiService.sendReplyMessage(
+        chatId: _chatId,
+        senderUid: authProvider.uid!,
+        senderName: authProvider.displayName ?? 'Unknown',
+        text: text,
+        replyToId: _replyingTo!['id'],
+        replyToText: _replyingTo!['text'] ?? '',
+        replyToSender: _replyingTo!['sender_name'] ?? '',
+      );
+      setState(() => _replyingTo = null);
+    } else {
+      await ApiService.sendMessage(
+        chatId: _chatId,
+        senderUid: authProvider.uid!,
+        senderName: authProvider.displayName ?? 'Unknown',
+        text: text,
+        messageType: 'text',
+      );
+    }
 
-    await _firestore.collection('chats').doc(_chatId).update({
-      'lastMessage': text,
-      'lastMessageTime': FieldValue.serverTimestamp(),
-    });
+    await _loadMessages();
   }
 
-  bool _isSendingImage = false;
+  Future<void> _searchMessages(String query) async {
+    if (query.isEmpty) {
+      await _loadMessages();
+      return;
+    }
+    try {
+      _messages = await ApiService.searchMessages(_chatId, query);
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Search error: $e');
+    }
+  }
+
+  void _setReply(Map<String, dynamic> message) {
+    setState(() => _replyingTo = message);
+  }
+
+  void _cancelReply() {
+    setState(() => _replyingTo = null);
+  }
 
   Future<void> _sendImage(ImageSource source) async {
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid == null) return;
+
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: source, imageQuality: 30, maxWidth: 800);
     if (pickedFile == null) return;
-
-    setState(() => _isSendingImage = true);
 
     try {
       final file = File(pickedFile.path);
       final bytes = await file.readAsBytes();
       final base64Image = base64Encode(bytes);
 
-      await _firestore.collection('chats').doc(_chatId).collection('messages').add({
-        'text': '',
-        'senderId': _currentUser!.uid,
-        'senderName': _currentUser!.displayName ?? 'Unknown',
-        'timestamp': FieldValue.serverTimestamp(),
-        'type': 'image',
-        'imageBase64': base64Image,
-        'isEdited': false,
-      });
+      await ApiService.sendMessage(
+        chatId: _chatId,
+        senderUid: authProvider.uid!,
+        senderName: authProvider.displayName ?? 'Unknown',
+        text: '',
+        messageType: 'image',
+        imageBase64: base64Image,
+      );
 
-      await _firestore.collection('chats').doc(_chatId).update({
-        'lastMessage': '🖼️ Ảnh',
-        'lastMessageTime': FieldValue.serverTimestamp(),
-      });
+      await _loadMessages();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -101,7 +146,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _isSendingImage = false);
+      // image send complete
     }
   }
 
@@ -140,55 +185,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     _messageController.clear();
 
-    await _firestore
-        .collection('chats')
-        .doc(_chatId)
-        .collection('messages')
-        .doc(_editingMessageId)
-        .update({
-      'text': text,
-      'isEdited': true,
-      'editedAt': FieldValue.serverTimestamp(),
-    });
+    await ApiService.updateMessage(int.parse(_editingMessageId!), text);
 
     setState(() {
       _isEditing = false;
       _editingMessageId = null;
     });
+
+    await _loadMessages();
   }
 
-  Future<void> _deleteMessage(String messageId) async {
-    await _firestore
-        .collection('chats')
-        .doc(_chatId)
-        .collection('messages')
-        .doc(messageId)
-        .delete();
 
-    final lastMsg = await _firestore
-        .collection('chats')
-        .doc(_chatId)
-        .collection('messages')
-        .orderBy('timestamp', descending: true)
-        .limit(1)
-        .get();
-
-    if (lastMsg.docs.isNotEmpty) {
-      final data = lastMsg.docs.first.data();
-      await _firestore.collection('chats').doc(_chatId).update({
-        'lastMessage': data['text'] ?? '',
-        'lastMessageTime': data['timestamp'],
-      });
-    } else {
-      await _firestore.collection('chats').doc(_chatId).update({
-        'lastMessage': '',
-        'lastMessageTime': null,
-      });
-    }
-  }
-
-  void _showMessageOptions(String messageId, String text, String senderId) {
-    final isMyMessage = senderId == _currentUser!.uid;
+  void _showMessageOptions(Map<String, dynamic> msg) {
+    final authProvider = context.read<AuthProvider>();
+    final messageId = msg['id'].toString();
+    final text = msg['text'] ?? '';
+    final senderId = msg['sender_uid'] ?? '';
+    final isMyMessage = senderId == authProvider.uid;
+    final isPinned = msg['is_pinned'] == true || msg['is_pinned'] == 1;
 
     showModalBottomSheet(
       context: context,
@@ -196,6 +210,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.reply, color: AppColors.primary),
+              title: const Text('Trả lời'),
+              onTap: () {
+                Navigator.pop(context);
+                _setReply(msg);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.emoji_emotions_outlined, color: Colors.orange),
+              title: const Text('Thả cảm xúc'),
+              onTap: () {
+                Navigator.pop(context);
+                _showReactionPicker(int.parse(messageId));
+              },
+            ),
             if (isMyMessage)
               ListTile(
                 leading: const Icon(Icons.edit, color: AppColors.primary),
@@ -209,15 +239,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   });
                 },
               ),
-            if (isMyMessage)
-              ListTile(
-                leading: const Icon(Icons.delete, color: AppColors.error),
-                title: const Text('Xóa tin nhắn'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showDeleteConfirm(messageId);
-                },
-              ),
+            ListTile(
+              leading: Icon(Icons.push_pin, color: isPinned ? AppColors.error : AppColors.primary),
+              title: Text(isPinned ? 'Bỏ ghim' : 'Ghim tin nhắn'),
+              onTap: () {
+                Navigator.pop(context);
+                ApiService.pinMessage(int.parse(messageId), !isPinned).then((_) => _loadMessages());
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.copy, color: AppColors.textSecondary),
               title: const Text('Sao chép'),
@@ -229,27 +258,41 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 );
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: AppColors.textSecondary),
+              title: const Text('Xóa cho mình'),
+              onTap: () {
+                Navigator.pop(context);
+                ApiService.deleteForMe(int.parse(messageId)).then((_) => _loadMessages());
+              },
+            ),
+            if (isMyMessage)
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: AppColors.error),
+                title: const Text('Xóa cho tất cả'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showDeleteForEveryoneConfirm(messageId);
+                },
+              ),
           ],
         ),
       ),
     );
   }
 
-  void _showDeleteConfirm(String messageId) {
+  void _showDeleteForEveryoneConfirm(String messageId) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Xóa tin nhắn'),
-        content: const Text('Bạn có chắc muốn xóa tin nhắn này?'),
+        title: const Text('Xóa cho tất cả'),
+        content: const Text('Tin nhắn sẽ bị xóa cho tất cả mọi người.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _deleteMessage(messageId);
+              ApiService.deleteForEveryone(int.parse(messageId)).then((_) => _loadMessages());
             },
             child: const Text('Xóa', style: TextStyle(color: AppColors.error)),
           ),
@@ -258,10 +301,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  void _updateTypingStatus(bool isTyping) {
-    _firestore.collection('chats').doc(_chatId).update({
-      'typingUser': isTyping ? _currentUser!.uid : '',
-    });
+  void _showReactionPicker(int messageId) {
+    final emojis = ['❤️', '😂', '😮', '😢', '😡', '👍'];
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: emojis.map((emoji) {
+              return GestureDetector(
+                onTap: () {
+                  Navigator.pop(context);
+                  ApiService.addReaction(messageId, emoji).then((_) => _loadMessages());
+                },
+                child: Text(emoji, style: const TextStyle(fontSize: 32)),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  void _updateTypingStatus(bool isTyping) async {
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid != null) {
+      await ApiService.updateTypingStatus(_chatId, authProvider.uid!, isTyping);
+    }
   }
 
   void _showClearChatConfirm() {
@@ -278,18 +347,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              final messages = await _firestore
-                  .collection('chats')
-                  .doc(_chatId)
-                  .collection('messages')
-                  .get();
-              for (final doc in messages.docs) {
-                await doc.reference.delete();
-              }
-              await _firestore.collection('chats').doc(_chatId).update({
-                'lastMessage': '',
-                'lastMessageTime': null,
-              });
+              await ApiService.clearChat(_chatId);
+              await _loadMessages();
             },
             child: const Text('Xóa', style: TextStyle(color: AppColors.error)),
           ),
@@ -334,13 +393,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                     overflow: TextOverflow.ellipsis,
                   ),
-                  StreamBuilder<DocumentSnapshot>(
-                    stream: _firestore.collection('chats').doc(_chatId).snapshots(),
+                  FutureBuilder<Map<String, dynamic>>(
+                    future: ApiService.getTypingUser(_chatId),
                     builder: (context, snap) {
-                      if (snap.hasData && snap.data!.exists) {
-                        final data = snap.data!.data() as Map<String, dynamic>;
-                        final typingUser = data['typingUser'] ?? '';
-                        if (typingUser.isNotEmpty && typingUser != _currentUser!.uid) {
+                      if (snap.hasData) {
+                        final typingUser = snap.data!['typingUser'] ?? '';
+                        final authProvider = context.read<AuthProvider>();
+                        if (typingUser.isNotEmpty && typingUser != authProvider.uid) {
                           return const Text('đang nhập...', style: TextStyle(fontSize: 12, color: AppColors.primary, fontStyle: FontStyle.italic));
                         }
                       }
@@ -354,8 +413,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.call_outlined),
-            onPressed: () {},
+            icon: const Icon(Icons.search),
+            onPressed: () => setState(() => _isSearching = !_isSearching),
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
@@ -367,10 +426,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 case 'clear_chat':
                   _showClearChatConfirm();
                   break;
+                case 'mute':
+                  ApiService.muteChat(_chatId, true);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tắt thông báo')));
+                  break;
+                case 'unmute':
+                  ApiService.muteChat(_chatId, false);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã bật thông báo')));
+                  break;
               }
             },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'group_settings', child: Text('Cài đặt nhóm')),
+              const PopupMenuItem(value: 'mute', child: Text('Tắt thông báo')),
+              const PopupMenuItem(value: 'unmute', child: Text('Bật thông báo')),
               const PopupMenuItem(value: 'clear_chat', child: Text('Xóa lịch sử chat')),
             ],
           ),
@@ -378,7 +447,29 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ),
       body: Column(
         children: [
+          if (_isSearching)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              color: Theme.of(context).cardColor,
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Tìm kiếm tin nhắn...',
+                  border: InputBorder.none,
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() => _isSearching = false);
+                      _loadMessages();
+                    },
+                  ),
+                ),
+                onChanged: _searchMessages,
+              ),
+            ),
           Expanded(child: _buildMessageList()),
+          if (_replyingTo != null) _buildReplyPreview(),
           _buildInputBar(),
         ],
       ),
@@ -386,56 +477,82 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Widget _buildMessageList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _firestore
-          .collection('chats')
-          .doc(_chatId)
-          .collection('messages')
-          .orderBy('timestamp', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(
-            child: Text(
-              'Hãy gửi tin nhắn đầu tiên!',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-          );
-        }
+    if (_messages.isEmpty) {
+      return const Center(
+        child: Text(
+          'Hãy gửi tin nhắn đầu tiên!',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+      );
+    }
 
-        final messages = snapshot.data!.docs;
-        return ListView.builder(
-          controller: _scrollController,
-          reverse: true,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          itemCount: messages.length,
-          itemBuilder: (context, index) {
-            final msg = messages[index].data() as Map<String, dynamic>;
-            final messageId = messages[index].id;
-            final isMe = msg['senderId'] == _currentUser!.uid;
+    final authProvider = context.read<AuthProvider>();
+    return ListView.builder(
+      controller: _scrollController,
+      reverse: true,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      itemCount: _messages.length,
+      itemBuilder: (context, index) {
+        final msg = _messages[index] as Map<String, dynamic>;
+        final isMe = msg['sender_uid'] == authProvider.uid;
+        final reactions = (msg['reactions'] as List<dynamic>?)?.map((r) => r as Map<String, dynamic>).toList() ?? [];
 
-            return MessageBubble(
-              text: msg['text'] ?? '',
-              isMe: isMe,
-              senderName: msg['senderName'] ?? '',
-              timestamp: msg['timestamp'] as Timestamp?,
-              isEdited: msg['isEdited'] ?? false,
-              type: msg['type'] ?? 'text',
-              imageUrl: msg['imageUrl'],
-              imageBase64: msg['imageBase64'],
-              onLongPress: () => _showMessageOptions(
-                messageId,
-                msg['text'] ?? '',
-                msg['senderId'] ?? '',
-              ),
-            );
-          },
+        return MessageBubble(
+          text: msg['text'] ?? '',
+          isMe: isMe,
+          senderName: msg['sender_name'] ?? '',
+          timestamp: msg['created_at'] != null ? DateTime.parse(msg['created_at']) : null,
+          isEdited: msg['is_edited'] == true || msg['is_edited'] == 1,
+          type: msg['message_type'] ?? 'text',
+          imageUrl: msg['imageUrl'],
+          imageBase64: msg['image_base64'],
+          deliveryStatus: msg['delivery_status'] ?? 'sent',
+          replyToText: msg['reply_to_text'],
+          replyToSender: msg['reply_to_sender'],
+          reactions: reactions,
+          isPinned: msg['is_pinned'] == true || msg['is_pinned'] == 1,
+          onLongPress: () => _showMessageOptions(msg),
+          onSwipeReply: () => _setReply(msg),
         );
       },
+    );
+  }
+
+  Widget _buildReplyPreview() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: AppColors.primary.withValues(alpha: 0.05),
+      child: Row(
+        children: [
+          Container(width: 3, height: 36, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _replyingTo!['sender_name'] ?? '',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
+                ),
+                Text(
+                  _replyingTo!['text'] ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: _cancelReply,
+          ),
+        ],
+      ),
     );
   }
 

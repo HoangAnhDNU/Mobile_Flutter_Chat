@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
+import '../../../core/services/api_service.dart';
+import '../../auth/providers/auth_provider.dart';
 
 class GroupSettingsScreen extends StatefulWidget {
   const GroupSettingsScreen({super.key});
@@ -15,20 +16,21 @@ class GroupSettingsScreen extends StatefulWidget {
 }
 
 class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
-  final _firestore = FirebaseFirestore.instance;
-  final _currentUser = FirebaseAuth.instance.currentUser;
   final _nameController = TextEditingController();
 
-  late String _chatId;
+  int _chatId = 0;
   String _groupAvatar = '';
   String _adminId = '';
   bool _isEditing = false;
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _participants = [];
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    _chatId = args?['chatId'] ?? '';
+    _chatId = args?['chatId'] ?? 0;
+    _loadGroupInfo();
   }
 
   @override
@@ -37,16 +39,33 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     super.dispose();
   }
 
-  bool get _isAdmin => _adminId == _currentUser?.uid;
+  bool get _isAdmin {
+    final authProvider = context.read<AuthProvider>();
+    return _adminId == authProvider.uid;
+  }
+
+  Future<void> _loadGroupInfo() async {
+    setState(() => _isLoading = true);
+    try {
+      final info = await ApiService.getChatInfo(_chatId);
+      setState(() {
+        _nameController.text = info['chat_name'] ?? '';
+        _groupAvatar = info['group_avatar'] ?? '';
+        _adminId = info['created_by'] ?? '';
+        _participants = List<Map<String, dynamic>>.from(info['participants'] ?? []);
+      });
+    } catch (e) {
+      debugPrint('Error loading group info: $e');
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
 
   Future<void> _updateGroupName() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
-    await _firestore.collection('chats').doc(_chatId).update({
-      'groupName': name,
-      'chatName': name,
-    });
+    await ApiService.updateGroup(_chatId, groupName: name);
     setState(() => _isEditing = false);
+    await _loadGroupInfo();
   }
 
   Future<void> _changeGroupAvatar() async {
@@ -58,7 +77,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final bytes = await file.readAsBytes();
     final base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
 
-    await _firestore.collection('chats').doc(_chatId).update({'groupAvatar': base64Image});
+    await ApiService.updateGroup(_chatId, groupAvatar: base64Image);
     setState(() => _groupAvatar = base64Image);
   }
 
@@ -75,9 +94,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       ),
     );
     if (confirm != true) return;
-    await _firestore.collection('chats').doc(_chatId).update({
-      'participants': FieldValue.arrayRemove([userId]),
-    });
+    await ApiService.removeParticipant(_chatId, userId);
+    await _loadGroupInfo();
   }
 
   Future<void> _leaveGroup() async {
@@ -94,170 +112,140 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     );
     if (confirm != true) return;
 
-    final chatDoc = await _firestore.collection('chats').doc(_chatId).get();
-    final participants = List<String>.from(chatDoc['participants'] ?? []);
-
-    await _firestore.collection('chats').doc(_chatId).update({
-      'participants': FieldValue.arrayRemove([_currentUser!.uid]),
-    });
-
-    if (_isAdmin && participants.length > 1) {
-      final nextAdmin = participants.firstWhere((id) => id != _currentUser!.uid, orElse: () => '');
-      if (nextAdmin.isNotEmpty) {
-        await _firestore.collection('chats').doc(_chatId).update({'adminId': nextAdmin});
-      }
-    }
-
+    await ApiService.leaveGroup(_chatId);
     if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, AppRoutes.chatList, (route) => false);
   }
 
   Future<void> _addMembers() async {
-    final chatDoc = await _firestore.collection('chats').doc(_chatId).get();
-    final currentParticipants = List<String>.from(chatDoc['participants'] ?? []);
-
+    final currentUids = _participants.map((p) => p['uid'] as String).toList();
     if (!mounted) return;
 
     final result = await Navigator.push<List<String>>(
       context,
       MaterialPageRoute(
-        builder: (_) => _AddMembersScreen(excludeIds: currentParticipants),
+        builder: (_) => _AddMembersScreen(excludeIds: currentUids),
       ),
     );
 
     if (result != null && result.isNotEmpty) {
-      await _firestore.collection('chats').doc(_chatId).update({
-        'participants': FieldValue.arrayUnion(result),
-      });
+      for (final uid in result) {
+        await ApiService.addParticipant(_chatId, uid);
+      }
+      await _loadGroupInfo();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: _firestore.collection('chats').doc(_chatId).snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
+    final authProvider = context.read<AuthProvider>();
 
-        final chat = snapshot.data!.data() as Map<String, dynamic>;
-        _adminId = chat['adminId'] ?? '';
-        _groupAvatar = chat['groupAvatar'] ?? '';
-        if (!_isEditing) {
-          _nameController.text = chat['groupName'] ?? '';
-        }
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-        final participants = List<String>.from(chat['participants'] ?? []);
-
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Cài đặt nhóm'),
-            actions: [
-              if (_isEditing)
-                IconButton(
-                  icon: const Icon(Icons.check, color: AppColors.primary),
-                  onPressed: _updateGroupName,
-                ),
-            ],
-          ),
-          body: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                GestureDetector(
-                  onTap: _isAdmin ? _changeGroupAvatar : null,
-                  child: Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 50,
-                        backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                        backgroundImage: _groupAvatar.isNotEmpty ? NetworkImage(_groupAvatar) : null,
-                        child: _groupAvatar.isEmpty
-                            ? const Icon(Icons.group, size: 50, color: AppColors.primary)
-                            : null,
-                      ),
-                      if (_isAdmin)
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                            child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _nameController,
-                  enabled: _isAdmin && _isEditing,
-                  decoration: InputDecoration(
-                    labelText: 'Tên nhóm',
-                    suffixIcon: _isAdmin
-                        ? IconButton(
-                            icon: Icon(_isEditing ? Icons.close : Icons.edit, size: 20),
-                            onPressed: () => setState(() => _isEditing = !_isEditing),
-                          )
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Cài đặt nhóm'),
+        actions: [
+          if (_isEditing)
+            IconButton(
+              icon: const Icon(Icons.check, color: AppColors.primary),
+              onPressed: _updateGroupName,
+            ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            GestureDetector(
+              onTap: _isAdmin ? _changeGroupAvatar : null,
+              child: Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 50,
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                    backgroundImage: _groupAvatar.isNotEmpty ? NetworkImage(_groupAvatar) : null,
+                    child: _groupAvatar.isEmpty
+                        ? const Icon(Icons.group, size: 50, color: AppColors.primary)
                         : null,
                   ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Thành viên (${participants.length})', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    if (_isAdmin)
-                      TextButton.icon(
-                        onPressed: _addMembers,
-                        icon: const Icon(Icons.person_add, size: 18),
-                        label: const Text('Thêm'),
+                  if (_isAdmin)
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                        child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ...participants.map((uid) => FutureBuilder<DocumentSnapshot>(
-                  future: _firestore.collection('users').doc(uid).get(),
-                  builder: (context, userSnap) {
-                    if (!userSnap.hasData) return const SizedBox.shrink();
-                    final userData = userSnap.data!.data() as Map<String, dynamic>? ?? {};
-                    final name = userData['displayName'] ?? 'Unknown';
-                    final avatar = userData['avatarUrl'] ?? '';
-
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                        backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
-                        child: avatar.isEmpty ? Text(name[0].toUpperCase(), style: const TextStyle(color: AppColors.primary)) : null,
-                      ),
-                      title: Text(name),
-                      subtitle: uid == _adminId ? const Text('Admin', style: TextStyle(color: AppColors.primary, fontSize: 12)) : null,
-                      trailing: (_isAdmin && uid != _currentUser!.uid)
-                          ? IconButton(
-                              icon: const Icon(Icons.remove_circle_outline, color: AppColors.error),
-                              onPressed: () => _removeMember(uid),
-                            )
-                          : null,
-                    );
-                  },
-                )),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _leaveGroup,
-                    icon: const Icon(Icons.exit_to_app, color: Colors.white),
-                    label: const Text('Rời nhóm'),
-                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.error, foregroundColor: Colors.white),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _nameController,
+              enabled: _isAdmin && _isEditing,
+              decoration: InputDecoration(
+                labelText: 'Tên nhóm',
+                suffixIcon: _isAdmin
+                    ? IconButton(
+                        icon: Icon(_isEditing ? Icons.close : Icons.edit, size: 20),
+                        onPressed: () => setState(() => _isEditing = !_isEditing),
+                      )
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Thành viên (${_participants.length})', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                if (_isAdmin)
+                  TextButton.icon(
+                    onPressed: _addMembers,
+                    icon: const Icon(Icons.person_add, size: 18),
+                    label: const Text('Thêm'),
                   ),
-                ),
               ],
             ),
-          ),
-        );
-      },
+            const SizedBox(height: 8),
+            ..._participants.map((user) {
+              final name = user['displayName'] ?? 'Unknown';
+              final avatar = user['avatarUrl'] ?? '';
+              final uid = user['uid'] ?? '';
+
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                  backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                  child: avatar.isEmpty ? Text(name[0].toUpperCase(), style: const TextStyle(color: AppColors.primary)) : null,
+                ),
+                title: Text(name),
+                subtitle: uid == _adminId ? const Text('Admin', style: TextStyle(color: AppColors.primary, fontSize: 12)) : null,
+                trailing: (_isAdmin && uid != authProvider.uid)
+                    ? IconButton(
+                        icon: const Icon(Icons.remove_circle_outline, color: AppColors.error),
+                        onPressed: () => _removeMember(uid),
+                      )
+                    : null,
+              );
+            }),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _leaveGroup,
+                icon: const Icon(Icons.exit_to_app, color: Colors.white),
+                label: const Text('Rời nhóm'),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.error, foregroundColor: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -272,6 +260,26 @@ class _AddMembersScreen extends StatefulWidget {
 
 class _AddMembersScreenState extends State<_AddMembersScreen> {
   final Set<String> _selected = {};
+  List<dynamic> _users = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  Future<void> _loadUsers() async {
+    try {
+      final users = await ApiService.getUsers();
+      setState(() {
+        _users = users.where((u) => !widget.excludeIds.contains(u['uid'])).toList();
+      });
+    } catch (e) {
+      debugPrint('Error loading users: $e');
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -286,31 +294,26 @@ class _AddMembersScreenState extends State<_AddMembersScreen> {
             ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('users').snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          final users = snapshot.data!.docs.where((d) => !widget.excludeIds.contains(d.id)).toList();
-          if (users.isEmpty) return const Center(child: Text('Không có người dùng để thêm'));
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _users.isEmpty
+              ? const Center(child: Text('Không có người dùng để thêm'))
+              : ListView.builder(
+                  itemCount: _users.length,
+                  itemBuilder: (context, index) {
+                    final user = _users[index] as Map<String, dynamic>;
+                    final uid = user['uid'] ?? '';
+                    final name = user['displayName'] ?? 'Unknown';
 
-          return ListView.builder(
-            itemCount: users.length,
-            itemBuilder: (context, index) {
-              final user = users[index].data() as Map<String, dynamic>;
-              final uid = users[index].id;
-              final name = user['displayName'] ?? 'Unknown';
-
-              return CheckboxListTile(
-                title: Text(name),
-                subtitle: Text(user['email'] ?? '', style: const TextStyle(fontSize: 12)),
-                value: _selected.contains(uid),
-                onChanged: (v) => setState(() => v == true ? _selected.add(uid) : _selected.remove(uid)),
-                activeColor: AppColors.primary,
-              );
-            },
-          );
-        },
-      ),
+                    return CheckboxListTile(
+                      title: Text(name),
+                      subtitle: Text(user['email'] ?? '', style: const TextStyle(fontSize: 12)),
+                      value: _selected.contains(uid),
+                      onChanged: (v) => setState(() => v == true ? _selected.add(uid) : _selected.remove(uid)),
+                      activeColor: AppColors.primary,
+                    );
+                  },
+                ),
     );
   }
 }

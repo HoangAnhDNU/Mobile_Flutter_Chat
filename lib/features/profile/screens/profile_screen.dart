@@ -1,14 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/themes/theme_provider.dart';
+import '../../auth/providers/auth_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -18,8 +18,6 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _auth = FirebaseAuth.instance;
-  final _firestore = FirebaseFirestore.instance;
   final _nameController = TextEditingController();
 
   bool _isEditing = false;
@@ -41,23 +39,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadUserData() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid == null) return;
 
-    final doc = await _firestore.collection('users').doc(user.uid).get();
-    if (doc.exists) {
-      final data = doc.data() as Map<String, dynamic>;
-      setState(() {
-        _nameController.text = data['displayName'] ?? '';
-        _avatarUrl = data['avatarUrl'] ?? '';
-        _email = data['email'] ?? user.email ?? '';
-      });
-    } else {
-      setState(() {
-        _nameController.text = user.displayName ?? '';
-        _email = user.email ?? '';
-      });
-    }
+    setState(() {
+      _nameController.text = authProvider.displayName ?? '';
+      _avatarUrl = authProvider.avatarUrl ?? '';
+      _email = authProvider.email ?? '';
+    });
   }
 
   Future<void> _loadPreferences() async {
@@ -82,35 +71,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (confirm != true) return;
 
-    final user = _auth.currentUser;
-    if (user == null) return;
-
-    try {
-      await _firestore.collection('users').doc(user.uid).delete();
-      await user.delete();
-      if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (route) => false);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đăng nhập lại trước khi xóa tài khoản'), backgroundColor: AppColors.error),
-      );
-    }
+    // Note: Account deletion requires backend implementation
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Tính năng xóa tài khoản cần backend support'), backgroundColor: AppColors.error),
+    );
   }
 
   Future<void> _updateDisplayName() async {
     final newName = _nameController.text.trim();
     if (newName.isEmpty) return;
 
-    final user = _auth.currentUser;
-    if (user == null) return;
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid == null) return;
 
-    await _firestore.collection('users').doc(user.uid).update({
-      'displayName': newName,
-    });
-    await user.updateDisplayName(newName);
+    await ApiService.updateUser(authProvider.uid!, displayName: newName);
 
     setState(() => _isEditing = false);
+    await _loadUserData();
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -119,18 +97,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _changeAvatar() async {
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid == null) return;
+
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 30, maxWidth: 400);
     if (pickedFile == null) return;
-
-    final user = _auth.currentUser;
-    if (user == null) return;
 
     final file = File(pickedFile.path);
     final bytes = await file.readAsBytes();
     final base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
 
-    await _firestore.collection('users').doc(user.uid).update({'avatarUrl': base64Image});
+    await ApiService.updateUser(authProvider.uid!, avatarUrl: base64Image);
 
     setState(() => _avatarUrl = base64Image);
   }
@@ -155,8 +133,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     if (confirm != true) return;
+    if (!mounted) return;
 
-    await _auth.signOut();
+    final authProvider = context.read<AuthProvider>();
+    await authProvider.signOut();
     if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, AppRoutes.login, (route) => false);
   }
@@ -239,7 +219,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     subtitle: const Text('Nhận thông báo tin nhắn mới'),
                     value: _notificationsEnabled,
                     onChanged: _toggleNotifications,
-                    activeColor: AppColors.primary,
+                    activeTrackColor: AppColors.primary,
                   ),
                   const Divider(height: 1),
                   SwitchListTile(
@@ -247,7 +227,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     subtitle: const Text('Giao diện tối cho mắt'),
                     value: context.watch<ThemeProvider>().isDarkMode,
                     onChanged: (value) => context.read<ThemeProvider>().toggleTheme(),
-                    activeColor: AppColors.primary,
+                    activeTrackColor: AppColors.primary,
                   ),
                 ],
               ),
