@@ -33,6 +33,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   late int _chatId;
   late String _chatName;
   bool _initialized = false;
+  bool _isMuted = false;
 
   @override
   void didChangeDependencies() {
@@ -43,7 +44,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       _chatId = args?['chatId'] ?? 0;
       _chatName = args?['chatName'] ?? 'Chat';
       _loadMessages();
+      _loadMuteStatus();
     }
+  }
+
+  Future<void> _loadMuteStatus() async {
+    // Mute status is managed locally for now
   }
 
   Future<void> _loadMessages() async {
@@ -337,6 +343,67 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
+  void _showPinnedMessages() async {
+    try {
+      final pinned = await ApiService.getPinnedMessages(_chatId);
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) => DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (context, scrollController) => Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(Icons.push_pin, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Text('Tin nhắn ghim (${pinned.length})',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: pinned.isEmpty
+                    ? const Center(child: Text('Chưa có tin nhắn ghim'))
+                    : ListView.builder(
+                        controller: scrollController,
+                        itemCount: pinned.length,
+                        itemBuilder: (context, index) {
+                          final msg = pinned[index] as Map<String, dynamic>;
+                          return ListTile(
+                            leading: const Icon(Icons.push_pin, size: 18, color: AppColors.primary),
+                            title: Text(msg['text'] ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
+                            subtitle: Text(msg['sender_name'] ?? '',
+                                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.close, size: 18),
+                              onPressed: () async {
+                                await ApiService.pinMessage(msg['id'], false);
+                                if (!context.mounted) return;
+                                Navigator.pop(context);
+                                _loadMessages();
+                              },
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error loading pinned messages: $e');
+    }
+  }
+
   void _showClearChatConfirm() {
     showDialog(
       context: context,
@@ -430,20 +497,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 case 'clear_chat':
                   _showClearChatConfirm();
                   break;
-                case 'mute':
-                  ApiService.muteChat(_chatId, true);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tắt thông báo')));
+                case 'toggle_mute':
+                  final newMuted = !_isMuted;
+                  ApiService.muteChat(_chatId, newMuted);
+                  setState(() => _isMuted = newMuted);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(newMuted ? 'Đã tắt thông báo' : 'Đã bật thông báo')),
+                  );
                   break;
-                case 'unmute':
-                  ApiService.muteChat(_chatId, false);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã bật thông báo')));
+                case 'pinned':
+                  _showPinnedMessages();
                   break;
               }
             },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'group_settings', child: Text('Cài đặt nhóm')),
-              const PopupMenuItem(value: 'mute', child: Text('Tắt thông báo')),
-              const PopupMenuItem(value: 'unmute', child: Text('Bật thông báo')),
+              PopupMenuItem(value: 'toggle_mute', child: Text(_isMuted ? 'Bật thông báo' : 'Tắt thông báo')),
+              const PopupMenuItem(value: 'pinned', child: Text('Xem tin nhắn ghim')),
               const PopupMenuItem(value: 'clear_chat', child: Text('Xóa lịch sử chat')),
             ],
           ),

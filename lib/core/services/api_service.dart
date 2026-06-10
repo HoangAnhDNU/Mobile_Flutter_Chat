@@ -1,12 +1,25 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../constants/app_config.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://10.0.2.2:3000/api';
-  
+  static const String baseUrl = AppConfig.baseUrl;
+  static const Duration _timeout = Duration(seconds: 10);
   static String? _token;
   static String? _uid;
+
+  static Future<http.Response> _get(Uri url, {Map<String, String>? headers}) =>
+      http.get(url, headers: headers).timeout(_timeout);
+
+  static Future<http.Response> _post(Uri url, {Map<String, String>? headers, Object? body}) =>
+      http.post(url, headers: headers, body: body).timeout(_timeout);
+
+  static Future<http.Response> _put(Uri url, {Map<String, String>? headers, Object? body}) =>
+      http.put(url, headers: headers, body: body).timeout(_timeout);
+
+  static Future<http.Response> _delete(Uri url, {Map<String, String>? headers, Object? body}) =>
+      http.delete(url, headers: headers, body: body).timeout(_timeout);
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -41,7 +54,7 @@ class ApiService {
     required String password,
     required String displayName,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/auth/register'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -62,7 +75,7 @@ class ApiService {
     required String email,
     required String password,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/auth/login'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -80,7 +93,7 @@ class ApiService {
 
   static Future<void> logout() async {
     if (_uid != null) {
-      await http.post(
+      await _post(
         Uri.parse('$baseUrl/auth/logout'),
         headers: _headers,
         body: jsonEncode({'uid': _uid}),
@@ -91,15 +104,16 @@ class ApiService {
 
   // User
   static Future<List<dynamic>> getUsers() async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/user?uid=$_uid'),
       headers: _headers,
     );
-    return jsonDecode(response.body);
+    final data = jsonDecode(response.body);
+    return data is List ? data : [];
   }
 
   static Future<Map<String, dynamic>> getUser(String uid) async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/user/$uid'),
       headers: _headers,
     );
@@ -110,7 +124,7 @@ class ApiService {
     String? displayName,
     String? avatarUrl,
   }) async {
-    final response = await http.put(
+    final response = await _put(
       Uri.parse('$baseUrl/user/$uid'),
       headers: _headers,
       body: jsonEncode({
@@ -122,7 +136,7 @@ class ApiService {
   }
 
   static Future<void> updateOnlineStatus(String uid, bool isOnline) async {
-    await http.put(
+    await _put(
       Uri.parse('$baseUrl/user/$uid/online'),
       headers: _headers,
       body: jsonEncode({'isOnline': isOnline}),
@@ -131,19 +145,21 @@ class ApiService {
 
   // Chat
   static Future<List<dynamic>> getChats() async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/chat?uid=$_uid'),
       headers: _headers,
     );
-    return jsonDecode(response.body);
+    final data = jsonDecode(response.body);
+    return data is List ? data : [];
   }
 
   static Future<List<dynamic>> getMessages(int chatId) async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/chat/$chatId/messages'),
       headers: _headers,
     );
-    return jsonDecode(response.body);
+    final data = jsonDecode(response.body);
+    return data is List ? data : [];
   }
 
   static Future<Map<String, dynamic>> createChat({
@@ -151,7 +167,7 @@ class ApiService {
     required String createdBy,
     String? chatName,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/chat'),
       headers: _headers,
       body: jsonEncode({
@@ -171,7 +187,7 @@ class ApiService {
     String messageType = 'text',
     String? imageBase64,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/chat/$chatId/messages'),
       headers: _headers,
       body: jsonEncode({
@@ -186,7 +202,7 @@ class ApiService {
   }
 
   static Future<void> updateMessage(int messageId, String text) async {
-    await http.put(
+    await _put(
       Uri.parse('$baseUrl/chat/messages/$messageId'),
       headers: _headers,
       body: jsonEncode({'text': text}),
@@ -194,28 +210,28 @@ class ApiService {
   }
 
   static Future<void> deleteMessage(int messageId) async {
-    await http.delete(
+    await _delete(
       Uri.parse('$baseUrl/chat/messages/$messageId'),
       headers: _headers,
     );
   }
 
   static Future<void> clearChat(int chatId) async {
-    await http.delete(
+    await _delete(
       Uri.parse('$baseUrl/chat/$chatId/messages'),
       headers: _headers,
     );
   }
 
   static Future<void> deleteChat(int chatId) async {
-    await http.delete(
+    await _delete(
       Uri.parse('$baseUrl/chat/$chatId'),
       headers: _headers,
     );
   }
 
   static Future<void> updateTypingStatus(int chatId, String uid, bool isTyping) async {
-    await http.put(
+    await _put(
       Uri.parse('$baseUrl/chat/$chatId/typing'),
       headers: _headers,
       body: jsonEncode({'uid': uid, 'isTyping': isTyping}),
@@ -223,7 +239,7 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> getTypingUser(int chatId) async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/chat/$chatId/typing'),
       headers: _headers,
     );
@@ -232,16 +248,17 @@ class ApiService {
 
   // Search messages
   static Future<List<dynamic>> searchMessages(int chatId, String query) async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/chat/$chatId/search?query=$query&uid=$_uid'),
       headers: _headers,
     );
-    return jsonDecode(response.body);
+    final data = jsonDecode(response.body);
+    return data is List ? data : [];
   }
 
   // Reactions
   static Future<void> addReaction(int messageId, String emoji) async {
-    await http.post(
+    await _post(
       Uri.parse('$baseUrl/chat/messages/$messageId/reactions'),
       headers: _headers,
       body: jsonEncode({'userUid': _uid, 'emoji': emoji}),
@@ -249,7 +266,7 @@ class ApiService {
   }
 
   static Future<void> removeReaction(int messageId, String emoji) async {
-    await http.delete(
+    await _delete(
       Uri.parse('$baseUrl/chat/messages/$messageId/reactions'),
       headers: _headers,
       body: jsonEncode({'userUid': _uid, 'emoji': emoji}),
@@ -257,7 +274,7 @@ class ApiService {
   }
 
   static Future<List<dynamic>> getReactions(int messageId) async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/chat/messages/$messageId/reactions'),
       headers: _headers,
     );
@@ -266,7 +283,7 @@ class ApiService {
 
   // Read receipts
   static Future<void> markAsRead(int chatId) async {
-    await http.post(
+    await _post(
       Uri.parse('$baseUrl/chat/$chatId/read'),
       headers: _headers,
       body: jsonEncode({'userUid': _uid}),
@@ -275,7 +292,7 @@ class ApiService {
 
   // Pin messages
   static Future<void> pinMessage(int messageId, bool isPinned) async {
-    await http.put(
+    await _put(
       Uri.parse('$baseUrl/chat/messages/$messageId/pin'),
       headers: _headers,
       body: jsonEncode({'isPinned': isPinned}),
@@ -283,16 +300,17 @@ class ApiService {
   }
 
   static Future<List<dynamic>> getPinnedMessages(int chatId) async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/chat/$chatId/pinned'),
       headers: _headers,
     );
-    return jsonDecode(response.body);
+    final data = jsonDecode(response.body);
+    return data is List ? data : [];
   }
 
   // Delete for me / everyone
   static Future<void> deleteForMe(int messageId) async {
-    await http.post(
+    await _post(
       Uri.parse('$baseUrl/chat/messages/$messageId/delete-for-me'),
       headers: _headers,
       body: jsonEncode({'userUid': _uid}),
@@ -300,7 +318,7 @@ class ApiService {
   }
 
   static Future<void> deleteForEveryone(int messageId) async {
-    await http.post(
+    await _post(
       Uri.parse('$baseUrl/chat/messages/$messageId/delete-for-everyone'),
       headers: _headers,
     );
@@ -308,7 +326,7 @@ class ApiService {
 
   // Mute/Archive
   static Future<void> muteChat(int chatId, bool isMuted) async {
-    await http.put(
+    await _put(
       Uri.parse('$baseUrl/chat/$chatId/mute'),
       headers: _headers,
       body: jsonEncode({'userUid': _uid, 'isMuted': isMuted}),
@@ -316,7 +334,7 @@ class ApiService {
   }
 
   static Future<void> archiveChat(int chatId, bool isArchived) async {
-    await http.put(
+    await _put(
       Uri.parse('$baseUrl/chat/$chatId/archive'),
       headers: _headers,
       body: jsonEncode({'userUid': _uid, 'isArchived': isArchived}),
@@ -337,7 +355,7 @@ class ApiService {
     String? replyToText,
     String? replyToSender,
   }) async {
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('$baseUrl/chat/$chatId/messages/reply'),
       headers: _headers,
       body: jsonEncode({
@@ -358,7 +376,7 @@ class ApiService {
 
   // Block user
   static Future<void> blockUser(String blockedUid) async {
-    await http.post(
+    await _post(
       Uri.parse('$baseUrl/user/$_uid/block'),
       headers: _headers,
       body: jsonEncode({'blockedUid': blockedUid}),
@@ -366,7 +384,7 @@ class ApiService {
   }
 
   static Future<void> unblockUser(String blockedUid) async {
-    await http.delete(
+    await _delete(
       Uri.parse('$baseUrl/user/$_uid/block'),
       headers: _headers,
       body: jsonEncode({'blockedUid': blockedUid}),
@@ -374,7 +392,7 @@ class ApiService {
   }
 
   static Future<List<dynamic>> getBlockedUsers() async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/user/$_uid/blocked'),
       headers: _headers,
     );
@@ -383,7 +401,7 @@ class ApiService {
 
   // Group management
   static Future<Map<String, dynamic>> getChatInfo(int chatId) async {
-    final response = await http.get(
+    final response = await _get(
       Uri.parse('$baseUrl/chat/$chatId/info'),
       headers: _headers,
     );
@@ -391,7 +409,7 @@ class ApiService {
   }
 
   static Future<void> updateGroup(int chatId, {String? groupName, String? groupAvatar}) async {
-    await http.put(
+    await _put(
       Uri.parse('$baseUrl/chat/$chatId/group'),
       headers: _headers,
       body: jsonEncode({
@@ -403,7 +421,7 @@ class ApiService {
   }
 
   static Future<void> addParticipant(int chatId, String userUid) async {
-    await http.post(
+    await _post(
       Uri.parse('$baseUrl/chat/$chatId/participants'),
       headers: _headers,
       body: jsonEncode({'userUid': userUid, 'adminUid': _uid}),
@@ -411,7 +429,7 @@ class ApiService {
   }
 
   static Future<void> removeParticipant(int chatId, String userUid) async {
-    await http.delete(
+    await _delete(
       Uri.parse('$baseUrl/chat/$chatId/participants/$userUid'),
       headers: _headers,
       body: jsonEncode({'adminUid': _uid}),
@@ -419,7 +437,7 @@ class ApiService {
   }
 
   static Future<void> leaveGroup(int chatId) async {
-    await http.post(
+    await _post(
       Uri.parse('$baseUrl/chat/$chatId/leave'),
       headers: _headers,
       body: jsonEncode({'userUid': _uid}),

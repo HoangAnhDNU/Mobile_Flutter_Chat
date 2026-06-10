@@ -122,7 +122,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         final displayName = user['display_name'] ?? 'Unknown';
         final email = user['email'] ?? '';
         final avatarUrl = user['avatar_url'] ?? '';
-        final isOnline = user['is_online'] ?? false;
+        final isOnline = (user['is_online'] == 1 || user['is_online'] == true);
 
         return ListTile(
           leading: Stack(

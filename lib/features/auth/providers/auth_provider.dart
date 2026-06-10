@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/api_service.dart';
 
 class AuthProvider extends ChangeNotifier {
@@ -12,6 +13,15 @@ class AuthProvider extends ChangeNotifier {
   String? get displayName => _displayName;
   String? get avatarUrl => _avatarUrl;
   bool get isLoggedIn => ApiService.isLoggedIn;
+
+  Future<void> loadUserFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    _uid = prefs.getString('uid');
+    _email = prefs.getString('email');
+    _displayName = prefs.getString('displayName');
+    _avatarUrl = prefs.getString('avatarUrl');
+    notifyListeners();
+  }
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -49,6 +59,7 @@ class AuthProvider extends ChangeNotifier {
       _email = result['user']['email'];
       _displayName = result['user']['displayName'];
       _avatarUrl = result['user']['avatarUrl'];
+      await _saveUserToPrefs();
 
       _setLoading(false);
       return true;
@@ -83,6 +94,7 @@ class AuthProvider extends ChangeNotifier {
       _uid = result['user']['uid'];
       _email = result['user']['email'];
       _displayName = result['user']['displayName'];
+      await _saveUserToPrefs();
 
       _setLoading(false);
       return true;
@@ -110,12 +122,22 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _saveUserToPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_uid != null) prefs.setString('uid', _uid!);
+    if (_email != null) prefs.setString('email', _email!);
+    if (_displayName != null) prefs.setString('displayName', _displayName!);
+    if (_avatarUrl != null) prefs.setString('avatarUrl', _avatarUrl!);
+  }
+
   Future<void> signOut() async {
     await ApiService.logout();
     _uid = null;
     _email = null;
     _displayName = null;
     _avatarUrl = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
     notifyListeners();
   }
 

@@ -11,8 +11,8 @@ class Message {
 
   static async findByChatId(chatId, limit = 50) {
     const [rows] = await pool.execute(
-      'SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT ?',
-      [chatId, limit]
+      `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT ${parseInt(limit)}`,
+      [parseInt(chatId)]
     );
     return rows;
   }

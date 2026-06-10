@@ -26,17 +26,13 @@ router.get('/', async (req, res) => {
         }
 
         return {
-          id: chat.id,
-          chatName: chat.chat_name,
-          lastMessage: chat.last_message,
-          lastMessageTime: chat.last_message_time,
-          typingUser: chat.typing_user,
+          ...chat,
           participants,
           otherUser: otherUser ? {
             uid: otherUser.uid,
-            displayName: otherUser.display_name,
-            avatarUrl: otherUser.avatar_url,
-            isOnline: otherUser.is_online
+            display_name: otherUser.display_name,
+            avatar_url: otherUser.avatar_url,
+            is_online: otherUser.is_online
           } : null
         };
       })
@@ -54,7 +50,19 @@ router.get('/:chatId/messages', async (req, res) => {
   try {
     const { chatId } = req.params;
     const messages = await Message.findByChatId(chatId);
-    res.json(messages);
+    const pool = require('../config/database');
+
+    const messagesWithReactions = await Promise.all(
+      messages.map(async (msg) => {
+        const [reactions] = await pool.query(
+          'SELECT * FROM message_reactions WHERE message_id = ?',
+          [msg.id]
+        );
+        return { ...msg, reactions };
+      })
+    );
+
+    res.json(messagesWithReactions);
   } catch (error) {
     console.error('Get messages error:', error);
     res.status(500).json({ error: 'Failed to fetch messages' });

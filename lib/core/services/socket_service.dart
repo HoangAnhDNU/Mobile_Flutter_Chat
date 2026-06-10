@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:convert';
+import '../constants/app_config.dart';
 
 class SocketService {
   static SocketService? _instance;
@@ -35,7 +36,7 @@ class SocketService {
     _uid = uid;
     try {
       _channel = WebSocketChannel.connect(
-        Uri.parse('ws://10.0.2.2:3000'),
+        Uri.parse(AppConfig.wsUrl),
       );
       _isConnected = true;
 

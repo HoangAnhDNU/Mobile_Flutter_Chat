@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
+import '../providers/auth_provider.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -23,6 +25,9 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     if (ApiService.isLoggedIn) {
+      final authProvider = context.read<AuthProvider>();
+      await authProvider.loadUserFromPrefs();
+      if (!mounted) return;
       Navigator.pushReplacementNamed(context, AppRoutes.chatList);
     } else {
       Navigator.pushReplacementNamed(context, AppRoutes.login);
