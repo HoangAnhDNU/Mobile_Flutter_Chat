@@ -446,4 +446,22 @@ class ApiService {
 
   static String? get uid => _uid;
   static bool get isLoggedIn => _token != null && _uid != null;
+
+  // ==================== AI Speech-to-Text ====================
+
+  static Future<Map<String, dynamic>> transcribeAudio(String filePath) async {
+    final uri = Uri.parse('${AppConfig.sttUrl}/transcribe');
+    final request = http.MultipartRequest('POST', uri);
+    request.files.add(await http.MultipartFile.fromPath('audio', filePath));
+
+    final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['error'] ?? 'Lỗi chuyển giọng nói');
+    }
+  }
 }

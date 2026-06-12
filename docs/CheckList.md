@@ -208,6 +208,16 @@
 ### Link Preview
 - [x] Flutter UI: Detect URLs, hiển thị preview card
 
+### AI Speech-to-Text (Chuyển giọng nói → văn bản)
+- [x] Chọn model AI: OpenAI Whisper (faster-whisper, `small`, miễn phí)
+- [x] Tạo Python Flask service (`speech_to_text/app.py`)
+- [x] API `GET /health` — kiểm tra trạng thái service
+- [x] API `POST /transcribe` — chuyển audio tiếng Việt → JSON text
+- [x] API `POST /transcribe-to-file` — chuyển audio → file .txt tải về
+- [x] Viết `requirements.txt` cho Python dependencies
+- [x] Viết tài liệu API (`speech_to_text/README.md`)
+- [ ] Tích hợp gọi API từ Flutter (ghi âm → gửi audio → hiển thị text)
+
 ---
 
 ## Giai đoạn 6 – Hoàn thiện & Báo cáo

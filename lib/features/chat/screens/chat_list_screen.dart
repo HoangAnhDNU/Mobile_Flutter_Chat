@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/socket_service.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -20,6 +22,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
   List<dynamic> _users = [];
   bool _isLoading = false;
 
+  final _socketService = SocketService.instance;
+  StreamSubscription? _messageSub;
+  StreamSubscription? _connectionSub;
+  bool _socketConnected = true;
+
   ImageProvider _getImageProvider(String url) {
     if (url.startsWith('data:image')) {
       final base64Str = url.split(',').last;
@@ -32,6 +39,29 @@ class _ChatListScreenState extends State<ChatListScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _setupSocket();
+  }
+
+  void _setupSocket() {
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid != null && !_socketService.isConnected) {
+      _socketService.connect(authProvider.uid!);
+    }
+
+    _messageSub = _socketService.onMessage.listen((_) {
+      _loadData();
+    });
+
+    _connectionSub = _socketService.onConnectionChange.listen((connected) {
+      if (mounted) setState(() => _socketConnected = connected);
+    });
+  }
+
+  @override
+  void dispose() {
+    _messageSub?.cancel();
+    _connectionSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -71,7 +101,25 @@ class _ChatListScreenState extends State<ChatListScreen> {
           ),
         ],
       ),
-      body: _buildBody(),
+      body: Column(
+        children: [
+          if (!_socketConnected)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              color: Colors.orange,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                  SizedBox(width: 8),
+                  Text('\u0110ang k\u1ebft n\u1ed1i l\u1ea1i...', style: TextStyle(color: Colors.white, fontSize: 13)),
+                ],
+              ),
+            ),
+          Expanded(child: _buildBody()),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => Navigator.pushNamed(context, AppRoutes.createChat),
         backgroundColor: AppColors.primary,
@@ -162,26 +210,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
               color: isOnline ? AppColors.success : AppColors.textSecondary,
             ),
           ),
-          onTap: () => _startChatWithUser(userId, displayName),
+          onTap: () => Navigator.pushNamed(context, AppRoutes.userDetail, arguments: {'uid': userId}),
         );
       },
     );
-  }
-
-  Future<void> _startChatWithUser(String otherUserId, String otherUserName) async {
-    final authProvider = context.read<AuthProvider>();
-    if (authProvider.uid == null) return;
-
-    final result = await ApiService.createChat(
-      participants: [authProvider.uid!, otherUserId],
-      createdBy: authProvider.uid!,
-    );
-
-    if (!mounted) return;
-    Navigator.pushNamed(context, AppRoutes.chatDetail,
-        arguments: {'chatId': result['chatId'], 'chatName': otherUserName});
-    
-    await _loadData();
   }
 
   Widget _buildChatList() {
@@ -210,7 +242,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
       );
     }
 
-    return ListView.separated(
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView.separated(
       itemCount: _chats.length,
       separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
       itemBuilder: (context, index) {
@@ -245,6 +279,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           child: _buildChatItem(chat),
         );
       },
+    ),
     );
   }
 
@@ -264,6 +299,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
       }
       avatarUrl = otherUser['avatar_url'] ?? '';
     }
+
+    final unreadCount = chat['unread_count'] ?? 0;
 
     return ListTile(
       leading: CircleAvatar(
@@ -285,20 +322,44 @@ class _ChatListScreenState extends State<ChatListScreen> {
         lastMessage,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        style: TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 13,
+          fontWeight: unreadCount > 0 ? FontWeight.w600 : FontWeight.normal,
+        ),
       ),
-      trailing: lastMessageTime != null
-          ? Text(
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (lastMessageTime != null)
+            Text(
               _formatTime(DateTime.parse(lastMessageTime)),
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-            )
-          : null,
-      onTap: () {
-        Navigator.pushNamed(
+            ),
+          if (unreadCount > 0) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                unreadCount > 99 ? '99+' : '$unreadCount',
+                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ],
+      ),
+      onTap: () async {
+        await Navigator.pushNamed(
           context,
           AppRoutes.chatDetail,
           arguments: {'chatId': chatId, 'chatName': displayName},
         );
+        _loadData();
       },
     );
   }

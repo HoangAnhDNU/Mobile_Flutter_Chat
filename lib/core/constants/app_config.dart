@@ -7,4 +7,8 @@ class AppConfig {
 
   static const String baseUrl = 'http://$serverHost:$serverPort/api';
   static const String wsUrl = 'ws://$serverHost:$serverPort';
+
+  // AI Speech-to-Text service
+  static const int sttPort = 5000;
+  static const String sttUrl = 'http://$serverHost:$sttPort';
 }

@@ -118,6 +118,22 @@ router.post('/:chatId/messages', async (req, res) => {
     const lastMessage = messageType === 'image' ? '🖼️ Ảnh' : text;
     await Chat.updateLastMessage(chatId, lastMessage);
 
+    // Emit real-time event to all users in this chat
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`chat_${chatId}`).emit('new_message', {
+        id: messageId,
+        chat_id: parseInt(chatId),
+        sender_uid: senderUid,
+        sender_name: senderName,
+        text: text || '',
+        message_type: messageType || 'text',
+        image_base64: imageBase64 || null,
+        created_at: new Date().toISOString(),
+        delivery_status: 'sent',
+      });
+    }
+
     res.status(201).json({ messageId });
   } catch (error) {
     console.error('Send message error:', error);

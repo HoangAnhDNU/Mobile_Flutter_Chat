@@ -6,16 +6,20 @@
 
 - Đăng nhập / Đăng ký
 - Chat 1-1 và nhóm (text, ảnh)
-- WebSocket real-time messaging
+- **Real-time messaging** qua Socket.IO (tin nhắn hiện ngay, không cần reload)
 - Delivery & read receipts (✓ / ✓✓ / ✓✓ xanh)
 - Reply / Quote messages
 - Emoji reactions
 - Tìm kiếm tin nhắn
 - Pin / Delete for me / Delete for everyone
 - Mute / Archive chats
-- Block / Unblock users
+- **Block / Unblock users** (có màn hình chi tiết người dùng)
 - Link preview
 - Dark mode / Light mode
+- **Pull-to-refresh** + **Unread badge** trên chat list
+- **Xem ảnh full-screen** (pinch-to-zoom)
+- **AI Speech-to-Text tiếng Việt** (nhấn mic → ghi âm → chuyển thành text)
+- Banner **mất kết nối** + **tự reconnect**
 
 ## Công nghệ sử dụng
 
@@ -25,19 +29,35 @@
 | Backend | Node.js, Express.js, Socket.IO |
 | Database | MySQL 8.0 |
 | Auth | JWT (JSON Web Token) |
-| Realtime | WebSocket (web_socket_channel) |
+| Realtime | Socket.IO (`socket_io_client`) |
+| AI Model | OpenAI Whisper (faster-whisper) — Speech-to-Text tiếng Việt |
+| AI Service | Python 3.8+, Flask, CTranslate2 |
 
 ## Yêu cầu hệ thống
 
 - **Flutter SDK** >= 3.0
 - **Node.js** >= 18.x
 - **MySQL** >= 8.0
+- **Python** >= 3.8 (cho AI Speech-to-Text service)
 - **Android Studio** hoặc VS Code với Flutter extension
 - **Thiết bị Android** (thật hoặc emulator)
 
 ---
 
 ## Hướng dẫn cài đặt và chạy
+
+### ⚡ Cách chạy nhanh (Windows)
+
+Sau khi cấu hình xong `.env` và IP, **double-click file** `start_all.bat` ở thư mục gốc để tự động mở:
+- Terminal Backend (port 3000)
+- Terminal STT AI Service (port 5000)
+
+Sau đó chạy Flutter riêng:
+```bash
+flutter run
+```
+
+---
 
 ### Bước 1: Clone dự án
 
@@ -97,6 +117,28 @@ Server running on port 3000
 WebSocket ready on port 3000
 ```
 
+### Bước 5.5: Cài đặt và chạy AI Speech-to-Text Service
+
+```bash
+pip install -r speech_to_text/requirements.txt
+```
+
+> Chỉ cần chạy lần đầu. Sau đó dùng `start_all.bat` hoặc:
+
+```bash
+cd speech_to_text
+python app.py
+```
+
+Nếu thành công sẽ thấy:
+```
+[STT] Đang tải model 'small' (compute: float32)...
+[STT] Model đã sẵn sàng!
+[STT] Service chạy tại http://0.0.0.0:5000
+```
+
+> **Lưu ý**: Lần đầu chạy tự tải model ~461MB (cần internet). Sau đó chạy **offline hoàn toàn**.
+
 ### Bước 6: Cấu hình IP cho Flutter
 
 Mở file `lib/core/constants/app_config.dart` và đổi `serverHost`:
@@ -134,6 +176,12 @@ flutter run
 
 ```
 mobile_flutter_chat/
+├── speech_to_text/              # AI Speech-to-Text Service (Python)
+│   ├── app.py                  # Flask server + Whisper model
+│   ├── requirements.txt        # Python dependencies
+│   ├── README.md               # API documentation
+│   └── uploads/                # Thư mục tạm (tự tạo)
+│
 ├── backend/                    # Backend Node.js
 │   ├── config/
 │   │   └── database.js         # Kết nối MySQL pool
@@ -176,7 +224,8 @@ mobile_flutter_chat/
 │   │   │   │   ├── chat_list_screen.dart    # DS chat + tab People
 │   │   │   │   ├── chat_detail_screen.dart  # Màn hình chat chính
 │   │   │   │   ├── create_chat_screen.dart  # Tạo chat/nhóm mới
-│   │   │   │   └── group_settings_screen.dart # Cài đặt nhóm
+│   │   │   │   ├── group_settings_screen.dart # Cài đặt nhóm
+│   │   │   │   └── user_detail_screen.dart  # Chi tiết user + Block
 │   │   │   └── widgets/
 │   │   │       └── message_bubble.dart # Widget hiển thị tin nhắn
 │   │   └── profile/
@@ -184,6 +233,7 @@ mobile_flutter_chat/
 │   │           └── profile_screen.dart # Trang cá nhân
 │   └── widgets/                # Widgets dùng chung
 │
+├── start_all.bat               # ⚡ Chạy nhanh Backend + STT cùng lúc
 ├── android/                    # Android config
 └── ios/                        # iOS config
 ```
@@ -191,6 +241,14 @@ mobile_flutter_chat/
 ---
 
 ## Giải thích file quan trọng
+
+### AI Speech-to-Text (Python)
+
+| File | Chức năng |
+|------|-----------|
+| `speech_to_text/app.py` | Flask server + Whisper model, 3 API endpoints: health, transcribe (→ JSON), transcribe-to-file (→ .txt) |
+| `speech_to_text/requirements.txt` | Python dependencies: `faster-whisper`, `flask`, `flask-cors` |
+| `speech_to_text/README.md` | Tài liệu API chi tiết, ví dụ curl/Python, hướng dẫn tích hợp Flutter |
 
 ### Backend
 
@@ -213,13 +271,14 @@ mobile_flutter_chat/
 |------|-----------|
 | `app_config.dart` | **⚠️ Quan trọng nhất** — cấu hình IP + port server. Mỗi người phải đổi IP theo máy mình |
 | `api_service.dart` | Tất cả HTTP calls (register, login, getChats, sendMessage, reactions, pin, v.v.). Có timeout 10s |
-| `socket_service.dart` | WebSocket client — nhận tin nhắn real-time, typing indicator, online status |
+| `socket_service.dart` | Socket.IO client — real-time messaging, typing, online status, auto-reconnect |
 | `auth_provider.dart` | State management cho auth (login/register/logout), lưu token vào SharedPreferences |
-| `chat_list_screen.dart` | Màn hình chính: Tab Chats (danh sách cuộc trò chuyện) + Tab People (danh sách user online) |
-| `chat_detail_screen.dart` | Màn hình chat: gửi/nhận tin nhắn, reply, emoji, pin, search, mute, xóa |
-| `message_bubble.dart` | Widget tin nhắn: hiển thị text/ảnh, reactions, reply preview, delivery status, pin indicator |
+| `chat_list_screen.dart` | Màn hình chính: Tab Chats + Tab People, pull-to-refresh, unread badge, connection banner |
+| `chat_detail_screen.dart` | Màn hình chat: gửi/nhận real-time, reply, emoji, pin, search, mute, xóa, ghi âm STT |
+| `message_bubble.dart` | Widget tin nhắn: text/ảnh (tap xem full-screen), reactions, reply, delivery status, pin |
 | `create_chat_screen.dart` | Tạo chat mới: chọn user chat 1-1 hoặc tạo nhóm |
 | `group_settings_screen.dart` | Quản lý nhóm: đổi tên, avatar, thêm/xóa thành viên |
+| `user_detail_screen.dart` | Chi tiết người dùng: avatar, trạng thái, nút nhắn tin, nút chặn/bỏ chặn |
 
 ---
 
@@ -247,6 +306,11 @@ mobile_flutter_chat/
 - `GET /api/user?uid=` — Danh sách users
 - `POST /api/user/:uid/block` — Block user
 
+### AI Speech-to-Text (Port 5000)
+- `GET /health` — Kiểm tra trạng thái AI service
+- `POST /transcribe` — Chuyển file audio tiếng Việt → JSON text
+- `POST /transcribe-to-file` — Chuyển file audio → file .txt tải về
+
 ---
 
 ## Troubleshooting
@@ -256,5 +320,9 @@ mobile_flutter_chat/
 | `Connection refused` / Timeout | Kiểm tra backend đang chạy, IP trong `app_config.dart` đúng, cùng WiFi |
 | `Access denied` MySQL | Kiểm tra `DB_PASSWORD` trong `.env` khớp với mật khẩu MySQL |
 | App kẹt ở đăng ký/đăng nhập | Backend không phản hồi — kiểm tra terminal backend có lỗi không |
-| Tin nhắn không hiện | Restart backend (`rs` + Enter trong terminal), restart Flutter app |
+| Tin nhắn không hiện real-time | Kiểm tra Socket.IO backend đang chạy, kiểm tra IP trong `app_config.dart` |
+| Banner "Đang kết nối lại..." luôn hiện | IP sai hoặc backend chưa chạy |
 | `CLEARTEXT communication not permitted` | Đã fix trong AndroidManifest.xml — nếu lỗi, kiểm tra `usesCleartextTraffic="true"` |
+| STT model tải chậm lần đầu | Bình thường — model ~461MB tải 1 lần, sau đó cache local |
+| STT kết quả không chính xác | Đảm bảo audio rõ tiếng, ít nhiễu. Thử model `medium` nếu cần chính xác hơn |
+| Mic không hoạt động trên Android | Kiểm tra quyền `RECORD_AUDIO` đã được cấp trong cài đặt điện thoại |

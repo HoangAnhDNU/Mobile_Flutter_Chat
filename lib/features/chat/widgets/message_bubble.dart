@@ -111,28 +111,40 @@ class MessageBubble extends StatelessWidget {
                     ),
                   ),
                 if (type == 'image' && imageBase64 != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(
-                      base64Decode(imageBase64!),
-                      width: 200,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image),
+                  GestureDetector(
+                    onTap: () => _openFullScreenImage(context, MemoryImage(base64Decode(imageBase64!))),
+                    child: Hero(
+                      tag: 'img_${imageBase64.hashCode}',
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.memory(
+                          base64Decode(imageBase64!),
+                          width: 200,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image),
+                        ),
+                      ),
                     ),
                   )
                 else if (type == 'image' && imageUrl != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: CachedNetworkImage(
-                      imageUrl: imageUrl!,
-                      width: 200,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => const SizedBox(
-                        width: 200,
-                        height: 150,
-                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  GestureDetector(
+                    onTap: () => _openFullScreenImage(context, CachedNetworkImageProvider(imageUrl!)),
+                    child: Hero(
+                      tag: 'img_${imageUrl.hashCode}',
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: CachedNetworkImage(
+                          imageUrl: imageUrl!,
+                          width: 200,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => const SizedBox(
+                            width: 200,
+                            height: 150,
+                            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          ),
+                          errorWidget: (context, url, error) => const Icon(Icons.error),
+                        ),
                       ),
-                      errorWidget: (context, url, error) => const Icon(Icons.error),
                     ),
                   )
                 else if (type == 'voice')
@@ -315,5 +327,39 @@ class MessageBubble extends StatelessWidget {
   String _formatTimestamp() {
     if (timestamp == null) return '';
     return '${timestamp!.hour.toString().padLeft(2, '0')}:${timestamp!.minute.toString().padLeft(2, '0')}';
+  }
+
+  void _openFullScreenImage(BuildContext context, ImageProvider imageProvider) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _FullScreenImageView(imageProvider: imageProvider),
+      ),
+    );
+  }
+}
+
+class _FullScreenImageView extends StatelessWidget {
+  final ImageProvider imageProvider;
+
+  const _FullScreenImageView({required this.imageProvider});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
+      extendBodyBehindAppBar: true,
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: Image(image: imageProvider, fit: BoxFit.contain),
+        ),
+      ),
+    );
   }
 }

@@ -99,6 +99,22 @@
 - **Online presence**: Real-time online/offline status via WebSocket
 - **Unread count badge**: Hiển thị số tin nhắn chưa đọc trên chat list
 
+### 2.9. AI Speech-to-Text (Chuyển giọng nói → văn bản)
+- **Model AI**: OpenAI Whisper (faster-whisper) — chạy local, miễn phí, offline
+- **Ngôn ngữ**: Tiếng Việt
+- **Chức năng**:
+  - Nhận file âm thanh tiếng Việt (.wav, .mp3, .m4a, .ogg, .flac)
+  - Chuyển đổi thành văn bản tiếng Việt
+  - Trả về text (JSON) hoặc file .txt
+- **Kiến trúc**:
+  - Python Flask service riêng biệt (`speech_to_text/app.py`)
+  - Flutter gọi API `POST /transcribe` gửi file audio
+  - Service xử lý bằng model Whisper và trả kết quả text
+- **API endpoints**:
+  - `GET /health` — Kiểm tra trạng thái service
+  - `POST /transcribe` — Chuyển audio → JSON text
+  - `POST /transcribe-to-file` — Chuyển audio → file .txt
+
 ## 3. Chức năng phi chức năng (Non-Functional Requirements)
 
 ### 3.1. Hiệu năng

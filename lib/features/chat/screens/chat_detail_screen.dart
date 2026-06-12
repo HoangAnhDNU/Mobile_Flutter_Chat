@@ -1,11 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:record/record.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/socket_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../widgets/message_bubble.dart';
 
@@ -35,6 +40,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _initialized = false;
   bool _isMuted = false;
 
+  // Socket
+  final _socketService = SocketService.instance;
+  StreamSubscription? _messageSub;
+  StreamSubscription? _connectionSub;
+  bool _socketConnected = true;
+
+  // Speech-to-Text
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  bool _isRecording = false;
+  bool _isTranscribing = false;
+  String? _recordingPath;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -45,7 +62,31 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       _chatName = args?['chatName'] ?? 'Chat';
       _loadMessages();
       _loadMuteStatus();
+      _setupSocket();
     }
+  }
+
+  void _setupSocket() {
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid != null && !_socketService.isConnected) {
+      _socketService.connect(authProvider.uid!);
+    }
+    _socketService.joinChat(_chatId);
+
+    _messageSub = _socketService.onMessage.listen((data) {
+      final msgChatId = data['chat_id'];
+      if (msgChatId == _chatId || msgChatId == _chatId.toString()) {
+        if (mounted) {
+          setState(() {
+            _messages.insert(0, data);
+          });
+        }
+      }
+    });
+
+    _connectionSub = _socketService.onConnectionChange.listen((connected) {
+      if (mounted) setState(() => _socketConnected = connected);
+    });
   }
 
   Future<void> _loadMuteStatus() async {
@@ -64,9 +105,98 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   void dispose() {
+    _messageSub?.cancel();
+    _connectionSub?.cancel();
+    _socketService.leaveChat(_chatId);
     _messageController.dispose();
     _scrollController.dispose();
+    _audioRecorder.dispose();
     super.dispose();
+  }
+
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      await _stopRecordingAndTranscribe();
+    } else {
+      await _startRecording();
+    }
+  }
+
+  Future<void> _startRecording() async {
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cần cấp quyền micro để ghi âm'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    try {
+      final dir = await getTemporaryDirectory();
+      _recordingPath = '${dir.path}/stt_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+      await _audioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: _recordingPath!,
+      );
+
+      setState(() => _isRecording = true);
+    } catch (e) {
+      debugPrint('Recording error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi ghi âm: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _stopRecordingAndTranscribe() async {
+    try {
+      final path = await _audioRecorder.stop();
+      setState(() {
+        _isRecording = false;
+        _isTranscribing = true;
+      });
+
+      if (path == null) {
+        setState(() => _isTranscribing = false);
+        return;
+      }
+
+      final result = await ApiService.transcribeAudio(path);
+      final text = (result['text'] as String?)?.trim() ?? '';
+
+      if (text.isNotEmpty) {
+        _messageController.text = _messageController.text.isEmpty
+            ? text
+            : '${_messageController.text} $text';
+        _messageController.selection = TextSelection.fromPosition(
+          TextPosition(offset: _messageController.text.length),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không nhận diện được giọng nói')),
+        );
+      }
+
+      // Xóa file tạm
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    } catch (e) {
+      debugPrint('Transcribe error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi nhận diện: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isTranscribing = false);
+    }
   }
 
   Future<void> _sendMessage() async {
@@ -521,6 +651,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ),
       body: Column(
         children: [
+          if (!_socketConnected)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              color: Colors.orange,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                  SizedBox(width: 8),
+                  Text('Đang kết nối lại...', style: TextStyle(color: Colors.white, fontSize: 13)),
+                ],
+              ),
+            ),
           if (_isSearching)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -660,16 +804,41 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               child: TextField(
                 controller: _messageController,
                 decoration: InputDecoration(
-                  hintText: _isEditing ? 'Chỉnh sửa tin nhắn...' : 'Message...',
+                  hintText: _isRecording
+                      ? 'Đang ghi âm...'
+                      : _isTranscribing
+                          ? 'Đang nhận diện giọng nói...'
+                          : _isEditing
+                              ? 'Chỉnh sửa tin nhắn...'
+                              : 'Message...',
                   border: InputBorder.none,
                   filled: false,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
                 textCapitalization: TextCapitalization.sentences,
                 maxLines: null,
+                enabled: !_isRecording && !_isTranscribing,
                 onChanged: (value) => _updateTypingStatus(value.trim().isNotEmpty),
               ),
             ),
+            if (_isTranscribing)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else if (!_isEditing)
+              IconButton(
+                icon: Icon(
+                  _isRecording ? Icons.stop_circle : Icons.mic,
+                  color: _isRecording ? AppColors.error : AppColors.textSecondary,
+                  size: _isRecording ? 28 : 24,
+                ),
+                onPressed: _toggleRecording,
+              ),
             IconButton(
               icon: Icon(
                 _isEditing ? Icons.check_circle : Icons.send,

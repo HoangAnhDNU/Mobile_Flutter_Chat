@@ -15,6 +15,7 @@ import 'features/chat/screens/chat_detail_screen.dart';
 import 'features/chat/screens/create_chat_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'features/chat/screens/group_settings_screen.dart';
+import 'features/chat/screens/user_detail_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,6 +51,7 @@ class MyApp extends StatelessWidget {
           AppRoutes.createChat: (_) => const CreateChatScreen(),
           AppRoutes.profile: (_) => const ProfileScreen(),
           AppRoutes.groupSettings: (_) => const GroupSettingsScreen(),
+          AppRoutes.userDetail: (_) => const UserDetailScreen(),
         },
       ),
       ),
