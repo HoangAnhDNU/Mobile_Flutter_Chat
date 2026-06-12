@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/socket_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   String? _uid;
   String? _email;
   String? _displayName;
   String? _avatarUrl;
+  String _role = 'user';
 
   String? get uid => _uid;
   String? get email => _email;
   String? get displayName => _displayName;
   String? get avatarUrl => _avatarUrl;
-  bool get isLoggedIn => ApiService.isLoggedIn;
+  String get role => _role;
+  bool get isAdmin => _role == 'admin';
+  bool get isLoggedIn => _uid != null;
 
   Future<void> loadUserFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
@@ -20,6 +24,21 @@ class AuthProvider extends ChangeNotifier {
     _email = prefs.getString('email');
     _displayName = prefs.getString('displayName');
     _avatarUrl = prefs.getString('avatarUrl');
+    _role = prefs.getString('role') ?? 'user';
+
+    if (_uid != null) {
+      try {
+        final userData = await ApiService.getUser(_uid!);
+        _displayName = userData['display_name'];
+        _avatarUrl = userData['avatar_url'];
+        if (userData['role'] != null) _role = userData['role'];
+        await _saveUserToPrefs();
+      } catch (e) {
+        debugPrint('Error refreshing user data: $e');
+      }
+      // Khôi phục phiên -> kết nối socket để đánh dấu online
+      SocketService.instance.connect(_uid!);
+    }
     notifyListeners();
   }
 
@@ -59,7 +78,11 @@ class AuthProvider extends ChangeNotifier {
       _email = result['user']['email'];
       _displayName = result['user']['displayName'];
       _avatarUrl = result['user']['avatarUrl'];
+      _role = result['user']['role'] ?? 'user';
       await _saveUserToPrefs();
+
+      // Kết nối socket ngay khi đăng nhập để đánh dấu online + nhận realtime
+      if (_uid != null) SocketService.instance.connect(_uid!);
 
       _setLoading(false);
       return true;
@@ -128,14 +151,25 @@ class AuthProvider extends ChangeNotifier {
     if (_email != null) prefs.setString('email', _email!);
     if (_displayName != null) prefs.setString('displayName', _displayName!);
     if (_avatarUrl != null) prefs.setString('avatarUrl', _avatarUrl!);
+    prefs.setString('role', _role);
+  }
+
+  Future<void> updateUserData({String? displayName, String? avatarUrl}) async {
+    if (displayName != null) _displayName = displayName;
+    if (avatarUrl != null) _avatarUrl = avatarUrl;
+    await _saveUserToPrefs();
+    notifyListeners();
   }
 
   Future<void> signOut() async {
+    // Ngắt socket trước để backend đánh dấu offline + phát presence_update
+    SocketService.instance.disconnect();
     await ApiService.logout();
     _uid = null;
     _email = null;
     _displayName = null;
     _avatarUrl = null;
+    _role = 'user';
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     notifyListeners();

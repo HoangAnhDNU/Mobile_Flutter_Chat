@@ -8,4 +8,8 @@ class AppRoutes {
   static const String createChat = '/create-chat';
   static const String profile = '/profile';
   static const String groupSettings = '/group-settings';
+  static const String adminDashboard = '/admin';
+  static const String adminUsers = '/admin/users';
+  static const String adminGroups = '/admin/groups';
+  static const String friends = '/friends';
 }

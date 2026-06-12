@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
-import '../../../core/services/api_service.dart';
 import '../providers/auth_provider.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -24,11 +22,14 @@ class _SplashScreenState extends State<SplashScreen> {
 
     if (!mounted) return;
 
-    if (ApiService.isLoggedIn) {
-      final authProvider = context.read<AuthProvider>();
-      await authProvider.loadUserFromPrefs();
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(context, AppRoutes.chatList);
+    final authProvider = context.read<AuthProvider>();
+    await authProvider.loadUserFromPrefs();
+    
+    if (!mounted) return;
+    
+    if (authProvider.isLoggedIn) {
+      final route = authProvider.isAdmin ? AppRoutes.adminDashboard : AppRoutes.chatList;
+      Navigator.pushReplacementNamed(context, route);
     } else {
       Navigator.pushReplacementNamed(context, AppRoutes.login);
     }
@@ -36,61 +37,24 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
+    return const Scaffold(
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Spacer(),
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.chat_rounded,
-                size: 40,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text(
               'Flutter Chat',
               style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
               ),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Connecting you instantly',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const Spacer(),
-            const Padding(
-              padding: EdgeInsets.only(bottom: 60),
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: AppColors.primary,
-                ),
-              ),
+            SizedBox(height: 8),
+            Text(
+              'Loading...',
+              style: TextStyle(fontSize: 14),
             ),
           ],
         ),

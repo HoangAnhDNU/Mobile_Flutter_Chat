@@ -1,13 +1,14 @@
 import 'dart:async';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'dart:convert';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+
 import '../constants/app_config.dart';
 
 class SocketService {
   static SocketService? _instance;
-  WebSocketChannel? _channel;
+  io.Socket? _socket;
   String? _uid;
   bool _isConnected = false;
+  int? _currentChatId;
 
   final _messageController = StreamController<Map<String, dynamic>>.broadcast();
   final _typingController = StreamController<Map<String, dynamic>>.broadcast();
@@ -15,6 +16,7 @@ class SocketService {
   final _deliveryController = StreamController<Map<String, dynamic>>.broadcast();
   final _reactionController = StreamController<Map<String, dynamic>>.broadcast();
   final _deleteController = StreamController<Map<String, dynamic>>.broadcast();
+  final _pinController = StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get onMessage => _messageController.stream;
   Stream<Map<String, dynamic>> get onTyping => _typingController.stream;
@@ -22,6 +24,7 @@ class SocketService {
   Stream<Map<String, dynamic>> get onDelivery => _deliveryController.stream;
   Stream<Map<String, dynamic>> get onReaction => _reactionController.stream;
   Stream<Map<String, dynamic>> get onDelete => _deleteController.stream;
+  Stream<Map<String, dynamic>> get onPin => _pinController.stream;
 
   bool get isConnected => _isConnected;
 
@@ -34,115 +37,122 @@ class SocketService {
 
   void connect(String uid) {
     _uid = uid;
+    if (_socket != null && _isConnected) {
+      return;
+    }
     try {
-      _channel = WebSocketChannel.connect(
-        Uri.parse(AppConfig.wsUrl),
+      _socket = io.io(
+        AppConfig.wsUrl,
+        io.OptionBuilder()
+            .setTransports(['websocket'])
+            .disableAutoConnect()
+            .setReconnectionDelay(3000)
+            .build(),
       );
-      _isConnected = true;
 
-      // Send user_online event
-      _send({'event': 'user_online', 'data': uid});
-
-      _channel!.stream.listen(
-        (data) {
-          final message = jsonDecode(data as String) as Map<String, dynamic>;
-          _handleEvent(message);
-        },
-        onDone: () {
+      _socket!
+        ..onConnect((_) {
+          _isConnected = true;
+          _socket!.emit('user_online', uid);
+          // Tự động vào lại phòng chat hiện tại sau khi kết nối thành công
+          // (tránh race condition khi joinChat được gọi lúc socket chưa connect).
+          if (_currentChatId != null) {
+            _socket!.emit('join_chat', _currentChatId);
+          }
+        })
+        ..on('new_message', (data) => _messageController.add(_toMap(data)))
+        ..on('user_typing', (data) => _typingController.add(_toMap(data)))
+        ..on('presence_update', (data) => _presenceController.add(_toMap(data)))
+        ..on('delivery_update', (data) => _deliveryController.add(_toMap(data)))
+        ..on('reaction_update', (data) => _reactionController.add(_toMap(data)))
+        ..on('message_deleted', (data) => _deleteController.add(_toMap(data)))
+        ..on('pin_update', (data) => _pinController.add(_toMap(data)))
+        ..onDisconnect((_) {
           _isConnected = false;
-          _reconnect();
-        },
-        onError: (error) {
+        })
+        ..onConnectError((error) {
           _isConnected = false;
-          _reconnect();
-        },
-      );
+        })
+        ..connect();
     } catch (e) {
       _isConnected = false;
     }
   }
 
-  void _handleEvent(Map<String, dynamic> message) {
-    final event = message['event'] as String?;
-    final data = message['data'] as Map<String, dynamic>?;
-    if (event == null || data == null) return;
-
-    switch (event) {
-      case 'new_message':
-        _messageController.add(data);
-        break;
-      case 'user_typing':
-        _typingController.add(data);
-        break;
-      case 'presence_update':
-        _presenceController.add(data);
-        break;
-      case 'delivery_update':
-        _deliveryController.add(data);
-        break;
-      case 'reaction_update':
-        _reactionController.add(data);
-        break;
-      case 'message_deleted':
-        _deleteController.add(data);
-        break;
+  Map<String, dynamic> _toMap(dynamic data) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) {
+      return data.map((key, value) => MapEntry(key.toString(), value));
     }
-  }
-
-  void _send(Map<String, dynamic> data) {
-    if (_channel != null && _isConnected) {
-      _channel!.sink.add(jsonEncode(data));
-    }
+    return {'value': data};
   }
 
   void joinChat(int chatId) {
-    _send({'event': 'join_chat', 'data': chatId});
+    _currentChatId = chatId;
+    if (_socket != null && _isConnected) {
+      _socket!.emit('join_chat', chatId);
+    }
   }
 
   void leaveChat(int chatId) {
-    _send({'event': 'leave_chat', 'data': chatId});
+    if (_currentChatId == chatId) {
+      _currentChatId = null;
+    }
+    if (_socket != null && _isConnected) {
+      _socket!.emit('leave_chat', chatId);
+    }
   }
 
   void sendTyping(int chatId, bool isTyping) {
-    _send({
-      'event': 'typing',
-      'data': {'chatId': chatId, 'uid': _uid, 'isTyping': isTyping},
-    });
+    if (_socket != null && _isConnected) {
+      _socket!.emit('typing', {
+        'chatId': chatId,
+        'uid': _uid,
+        'isTyping': isTyping,
+      });
+    }
   }
 
   void sendMessageDelivered(int messageId, String senderUid) {
-    _send({
-      'event': 'message_delivered',
-      'data': {'messageId': messageId, 'senderUid': senderUid},
-    });
+    if (_socket != null && _isConnected) {
+      _socket!.emit('message_delivered', {
+        'messageId': messageId,
+        'senderUid': senderUid,
+      });
+    }
   }
 
   void sendMessageRead(int messageId, String senderUid) {
-    _send({
-      'event': 'message_read',
-      'data': {'messageId': messageId, 'senderUid': senderUid},
-    });
+    if (_socket != null && _isConnected) {
+      _socket!.emit('message_read', {
+        'messageId': messageId,
+        'senderUid': senderUid,
+      });
+    }
+  }
+
+  void sendMessage(Map<String, dynamic> data) {
+    if (_socket != null && _isConnected) {
+      _socket!.emit('send_message', data);
+    }
   }
 
   void sendReaction(int chatId, int messageId, String emoji) {
-    _send({
-      'event': 'add_reaction',
-      'data': {'chatId': chatId, 'messageId': messageId, 'userUid': _uid, 'emoji': emoji},
-    });
-  }
-
-  void _reconnect() {
-    if (_uid != null) {
-      Future.delayed(const Duration(seconds: 3), () {
-        if (!_isConnected) connect(_uid!);
+    if (_socket != null && _isConnected) {
+      _socket!.emit('add_reaction', {
+        'chatId': chatId,
+        'messageId': messageId,
+        'userUid': _uid,
+        'emoji': emoji,
       });
     }
   }
 
   void disconnect() {
     _isConnected = false;
-    _channel?.sink.close();
-    _channel = null;
+    _socket?.disconnect();
+    _socket?.dispose();
+    _socket = null;
   }
 
   void dispose() {
@@ -153,6 +163,7 @@ class SocketService {
     _deliveryController.close();
     _reactionController.close();
     _deleteController.close();
+    _pinController.close();
     _instance = null;
   }
 }

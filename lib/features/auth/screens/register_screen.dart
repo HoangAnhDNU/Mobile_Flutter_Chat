@@ -33,8 +33,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final authProvider = context.read<AuthProvider>();
-    final success = await authProvider.register(
+    final authNotifier = context.read<AuthProvider>();
+    final success = await authNotifier.register(
       email: _emailController.text,
       password: _passwordController.text,
       displayName: _displayNameController.text,
@@ -47,7 +47,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Đăng ký thất bại'),
+          content: Text(authNotifier.errorMessage ?? 'Đăng ký thất bại'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -56,10 +56,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = context.watch<AuthProvider>();
+    final authNotifier = context.watch<AuthProvider>();
 
     return LoadingOverlay(
-      isLoading: authProvider.isLoading,
+      isLoading: authNotifier.isLoading,
       message: 'Đang đăng ký...',
       child: Scaffold(
       appBar: AppBar(
@@ -207,8 +207,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 32),
                 ElevatedButton(
-                  onPressed: authProvider.isLoading ? null : _handleRegister,
-                  child: authProvider.isLoading
+                  onPressed: authNotifier.isLoading ? null : _handleRegister,
+                  child: authNotifier.isLoading
                       ? const SizedBox(
                           width: 20,
                           height: 20,

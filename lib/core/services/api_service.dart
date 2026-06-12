@@ -3,11 +3,22 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_config.dart';
 
+/// ApiService - lớp adapter giao tiếp với backend Python (FastAPI).
+///
+/// Backend Python trả về dữ liệu dạng snake_case với shape riêng
+/// (ví dụ {chats: [...], total}, message dùng "content"/"type"/"status").
+/// Lớp này chuyển đổi (adapt) các response đó về đúng định dạng mà
+/// các màn hình UI hiện có đang đọc (text, sender_uid, otherUser, chat_name...).
 class ApiService {
-  static const String baseUrl = AppConfig.baseUrl;
-  static const Duration _timeout = Duration(seconds: 10);
+  static String get baseUrl => AppConfig.baseUrl;
+  static const Duration _timeout = Duration(seconds: 15);
   static String? _token;
   static String? _uid;
+
+  static String? get uid => _uid;
+  static bool get isLoggedIn => _token != null && _uid != null;
+
+  // ==================== HTTP helpers ====================
 
   static Future<http.Response> _get(Uri url, {Map<String, String>? headers}) =>
       http.get(url, headers: headers).timeout(_timeout);
@@ -20,6 +31,19 @@ class ApiService {
 
   static Future<http.Response> _delete(Uri url, {Map<String, String>? headers, Object? body}) =>
       http.delete(url, headers: headers, body: body).timeout(_timeout);
+
+  /// Decode body với UTF-8 để hiển thị tiếng Việt chính xác.
+  static dynamic _decode(http.Response response) {
+    if (response.bodyBytes.isEmpty) return {};
+    return jsonDecode(utf8.decode(response.bodyBytes));
+  }
+
+  static Map<String, String> get _headers => {
+        'Content-Type': 'application/json',
+        if (_token != null) 'Authorization': 'Bearer $_token',
+      };
+
+  // ==================== Token / Session ====================
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -43,73 +67,194 @@ class ApiService {
     await prefs.remove('uid');
   }
 
-  static Map<String, String> get _headers => {
-    'Content-Type': 'application/json',
-    if (_token != null) 'Authorization': 'Bearer $_token',
-  };
+  // ==================== Adapters ====================
 
-  // Auth
+  /// Chuẩn hóa user về map có cả snake_case và camelCase để mọi màn dùng được.
+  static Map<String, dynamic> _adaptUser(Map<String, dynamic> u) {
+    final id = u['id']?.toString() ?? u['uid']?.toString() ?? '';
+    return {
+      'uid': id,
+      'id': id,
+      'email': u['email'] ?? '',
+      'display_name': u['display_name'] ?? u['displayName'] ?? '',
+      'displayName': u['display_name'] ?? u['displayName'] ?? '',
+      'avatar_url': u['avatar_url'] ?? u['avatarUrl'] ?? '',
+      'avatarUrl': u['avatar_url'] ?? u['avatarUrl'] ?? '',
+      'role': u['role'] ?? 'user',
+      'is_locked': u['is_locked'] ?? false,
+      'is_online': u['is_online'] ?? false,
+    };
+  }
+
+  /// Chuyển message của backend Python về định dạng UI đang đọc.
+  static Map<String, dynamic> _adaptMessage(Map<String, dynamic> m) {
+    return {
+      'id': int.tryParse(m['id']?.toString() ?? '') ?? 0,
+      'text': m['content'] ?? '',
+      'sender_uid': m['sender_id']?.toString() ?? '',
+      'sender_name': m['sender_name'] ?? '',
+      'sender_avatar': m['sender_avatar'],
+      'created_at': m['created_at'],
+      'is_edited': m['edited_at'] != null,
+      'message_type': m['type'] ?? 'text',
+      'imageUrl': m['media_url'],
+      'image_base64': null,
+      'voice_duration': 0,
+      'delivery_status': m['status'] ?? 'sent',
+      'reply_to_text': null,
+      'reply_to_sender': null,
+      'is_pinned': m['is_pinned'] == true,
+      'is_deleted': m['is_deleted'] == true,
+      'reactions': (m['reactions'] as List?)
+              ?.map((r) => Map<String, dynamic>.from(r as Map))
+              .toList() ??
+          [],
+    };
+  }
+
+  /// Chuyển chat của backend Python về định dạng UI (chat list) đang đọc.
+  static Map<String, dynamic> _adaptChat(Map<String, dynamic> c) {
+    final isGroup = c['is_group'] == true;
+    final participants = (c['participants'] as List?)
+            ?.map((p) => Map<String, dynamic>.from(p as Map))
+            .toList() ??
+        [];
+
+    String chatName;
+    Map<String, dynamic>? otherUser;
+    String avatarUrl = c['avatar_url']?.toString() ?? '';
+
+    if (isGroup) {
+      chatName = (c['name']?.toString().isNotEmpty == true) ? c['name'] : 'Nhóm';
+    } else {
+      Map<String, dynamic>? other;
+      for (final p in participants) {
+        if (p['id']?.toString() != _uid) {
+          other = p;
+          break;
+        }
+      }
+      other ??= participants.isNotEmpty ? participants.first : null;
+      if (other != null) {
+        otherUser = _adaptUser(other);
+        chatName = otherUser['display_name'];
+        avatarUrl = otherUser['avatar_url'];
+      } else {
+        chatName = c['name']?.toString() ?? '';
+      }
+    }
+
+    final lastMessage = c['last_message'] as Map?;
+
+    return {
+      'id': int.tryParse(c['id']?.toString() ?? '') ?? 0,
+      'chat_name': chatName,
+      'otherUser': otherUser,
+      'avatar_url': avatarUrl,
+      'is_group': isGroup,
+      'last_message': lastMessage?['content'] ?? '',
+      'last_message_time': lastMessage?['created_at'],
+    };
+  }
+
+  // ==================== Auth ====================
+
   static Future<Map<String, dynamic>> register({
     required String email,
     required String password,
     required String displayName,
   }) async {
-    final response = await _post(
-      Uri.parse('$baseUrl/auth/register'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'email': email,
-        'password': password,
-        'displayName': displayName,
-      }),
-    );
+    try {
+      final response = await _post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+          'display_name': displayName,
+        }),
+      );
 
-    final data = jsonDecode(response.body);
-    if (response.statusCode == 201) {
-      await saveToken(data['token'], data['user']['uid']);
+      final data = _decode(response) as Map<String, dynamic>;
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final user = _adaptUser(Map<String, dynamic>.from(data['user']));
+        await saveToken(data['token'], user['uid']);
+        return {'user': user, 'token': data['token']};
+      }
+      return {'error': data['detail'] ?? data['message'] ?? 'Đăng ký thất bại'};
+    } catch (e) {
+      return {'error': 'Không thể kết nối đến máy chủ'};
     }
-    return data;
   }
 
   static Future<Map<String, dynamic>> login({
     required String email,
     required String password,
   }) async {
-    final response = await _post(
-      Uri.parse('$baseUrl/auth/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'email': email,
-        'password': password,
-      }),
-    );
+    try {
+      final response = await _post(
+        Uri.parse('$baseUrl/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+        }),
+      );
 
-    final data = jsonDecode(response.body);
-    if (response.statusCode == 200) {
-      await saveToken(data['token'], data['user']['uid']);
+      final data = _decode(response) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        final user = _adaptUser(Map<String, dynamic>.from(data['user']));
+        await saveToken(data['token'], user['uid']);
+        return {'user': user, 'token': data['token']};
+      }
+      return {'error': data['detail'] ?? data['message'] ?? 'Đăng nhập thất bại'};
+    } catch (e) {
+      return {'error': 'Không thể kết nối đến máy chủ'};
     }
-    return data;
   }
 
   static Future<void> logout() async {
-    if (_uid != null) {
-      await _post(
-        Uri.parse('$baseUrl/auth/logout'),
-        headers: _headers,
-        body: jsonEncode({'uid': _uid}),
-      );
+    try {
+      await _post(Uri.parse('$baseUrl/auth/logout'), headers: _headers);
+    } catch (_) {
+      // Bỏ qua lỗi khi đăng xuất
     }
     await clearToken();
   }
 
-  // User
+  // ==================== User ====================
+
+  /// Lấy danh sách user. Backend chỉ có /user/search?q= (bắt buộc q>=1 ký tự),
+  /// dùng "@" để khớp mọi email -> liệt kê được tất cả user khác.
   static Future<List<dynamic>> getUsers() async {
-    final response = await _get(
-      Uri.parse('$baseUrl/user?uid=$_uid'),
-      headers: _headers,
-    );
-    final data = jsonDecode(response.body);
-    return data is List ? data : [];
+    try {
+      final response = await _get(
+        Uri.parse('$baseUrl/user/search?q=@&page=1&limit=100'),
+        headers: _headers,
+      );
+      if (response.statusCode != 200) return [];
+      final data = _decode(response);
+      final users = (data is Map ? data['users'] : data) as List? ?? [];
+      return users.map((u) => _adaptUser(Map<String, dynamic>.from(u as Map))).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<List<dynamic>> searchUsers(String query) async {
+    if (query.trim().isEmpty) return getUsers();
+    try {
+      final response = await _get(
+        Uri.parse('$baseUrl/user/search?q=${Uri.encodeComponent(query)}&page=1&limit=50'),
+        headers: _headers,
+      );
+      if (response.statusCode != 200) return [];
+      final data = _decode(response);
+      final users = (data is Map ? data['users'] : data) as List? ?? [];
+      return users.map((u) => _adaptUser(Map<String, dynamic>.from(u as Map))).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   static Future<Map<String, dynamic>> getUser(String uid) async {
@@ -117,66 +262,106 @@ class ApiService {
       Uri.parse('$baseUrl/user/$uid'),
       headers: _headers,
     );
-    return jsonDecode(response.body);
+    final data = _decode(response) as Map<String, dynamic>;
+    if (data['user'] != null) {
+      return _adaptUser(Map<String, dynamic>.from(data['user']));
+    }
+    return {};
   }
 
-  static Future<Map<String, dynamic>> updateUser(String uid, {
+  static Future<Map<String, dynamic>> updateUser(
+    String uid, {
     String? displayName,
     String? avatarUrl,
   }) async {
     final response = await _put(
-      Uri.parse('$baseUrl/user/$uid'),
+      Uri.parse('$baseUrl/user/me'),
       headers: _headers,
       body: jsonEncode({
-        if (displayName != null) 'displayName': displayName,
-        if (avatarUrl != null) 'avatarUrl': avatarUrl,
+        if (displayName != null) 'display_name': displayName,
+        if (avatarUrl != null) 'avatar_url': avatarUrl,
       }),
     );
-    return jsonDecode(response.body);
+    final data = _decode(response) as Map<String, dynamic>;
+    if (data['user'] != null) {
+      return _adaptUser(Map<String, dynamic>.from(data['user']));
+    }
+    return data;
   }
 
-  static Future<void> updateOnlineStatus(String uid, bool isOnline) async {
-    await _put(
-      Uri.parse('$baseUrl/user/$uid/online'),
+  /// Backend chưa có endpoint cập nhật trạng thái online -> bỏ qua.
+  static Future<void> updateOnlineStatus(String uid, bool isOnline) async {}
+
+  /// Đổi mật khẩu. Trả về {ok, message/error}.
+  static Future<Map<String, dynamic>> changePassword(String oldPassword, String newPassword) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/user/change-password'),
       headers: _headers,
-      body: jsonEncode({'isOnline': isOnline}),
+      body: jsonEncode({'old_password': oldPassword, 'new_password': newPassword}),
     );
+    final data = _decode(response) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return {'ok': true, 'message': data['message'] ?? 'Đổi mật khẩu thành công'};
+    }
+    return {'ok': false, 'error': data['detail'] ?? 'Đổi mật khẩu thất bại'};
   }
 
-  // Chat
+  // ==================== Chat ====================
+
   static Future<List<dynamic>> getChats() async {
     final response = await _get(
-      Uri.parse('$baseUrl/chat?uid=$_uid'),
+      Uri.parse('$baseUrl/chat?page=1&limit=50'),
       headers: _headers,
     );
-    final data = jsonDecode(response.body);
-    return data is List ? data : [];
+    if (response.statusCode != 200) return [];
+    final data = _decode(response);
+    final chats = (data is Map ? data['chats'] : data) as List? ?? [];
+    return chats.map((c) => _adaptChat(Map<String, dynamic>.from(c as Map))).toList();
   }
 
   static Future<List<dynamic>> getMessages(int chatId) async {
     final response = await _get(
-      Uri.parse('$baseUrl/chat/$chatId/messages'),
+      Uri.parse('$baseUrl/chat/$chatId/messages?page=1&limit=100'),
       headers: _headers,
     );
-    final data = jsonDecode(response.body);
-    return data is List ? data : [];
+    if (response.statusCode != 200) return [];
+    final data = _decode(response);
+    final messages = (data is Map ? data['messages'] : data) as List? ?? [];
+    return messages.map((m) => _adaptMessage(Map<String, dynamic>.from(m as Map))).toList();
   }
 
+  /// Tạo chat. participants gồm uid của mình + các uid khác.
+  /// Có chatName hoặc nhiều hơn 1 người khác -> tạo nhóm, ngược lại chat 1-1.
   static Future<Map<String, dynamic>> createChat({
     required List<String> participants,
     required String createdBy,
     String? chatName,
   }) async {
-    final response = await _post(
-      Uri.parse('$baseUrl/chat'),
-      headers: _headers,
-      body: jsonEncode({
-        'participants': participants,
-        'createdBy': createdBy,
-        'chatName': chatName ?? '',
-      }),
-    );
-    return jsonDecode(response.body);
+    final others = participants.where((p) => p != createdBy).toList();
+    final isGroup = (chatName != null && chatName.isNotEmpty) || others.length > 1;
+
+    final http.Response response;
+    if (isGroup) {
+      response = await _post(
+        Uri.parse('$baseUrl/chat/group'),
+        headers: _headers,
+        body: jsonEncode({
+          'name': chatName ?? 'Nhóm mới',
+          'participant_ids': others,
+        }),
+      );
+    } else {
+      response = await _post(
+        Uri.parse('$baseUrl/chat/direct'),
+        headers: _headers,
+        body: jsonEncode({'user_id': others.isNotEmpty ? others.first : ''}),
+      );
+    }
+
+    final data = _decode(response) as Map<String, dynamic>;
+    final chat = data['chat'] as Map?;
+    final chatId = int.tryParse(chat?['id']?.toString() ?? '') ?? 0;
+    return {'chatId': chatId, 'chat': chat};
   }
 
   static Future<Map<String, dynamic>> sendMessage({
@@ -186,162 +371,40 @@ class ApiService {
     required String text,
     String messageType = 'text',
     String? imageBase64,
+    String? voiceBase64,
+    int? voiceDuration,
   }) async {
+    // Backend yêu cầu content tối thiểu 1 ký tự.
+    final content = text.isNotEmpty
+        ? text
+        : (messageType == 'image'
+            ? '[Hình ảnh]'
+            : messageType == 'voice'
+                ? '[Tin nhắn thoại]'
+                : ' ');
+    // Ảnh/âm thanh được lưu dưới dạng data URI base64 trong media_url.
+    String? mediaUrl;
+    if (messageType == 'image' && imageBase64 != null) {
+      mediaUrl = imageBase64.startsWith('data:') ? imageBase64 : 'data:image/png;base64,$imageBase64';
+    } else if (messageType == 'voice' && voiceBase64 != null) {
+      mediaUrl = voiceBase64.startsWith('data:') ? voiceBase64 : 'data:audio/m4a;base64,$voiceBase64';
+    }
     final response = await _post(
       Uri.parse('$baseUrl/chat/$chatId/messages'),
       headers: _headers,
       body: jsonEncode({
-        'senderUid': senderUid,
-        'senderName': senderName,
-        'text': text,
-        'messageType': messageType,
-        'imageBase64': imageBase64,
+        'content': content,
+        'type': messageType,
+        if (mediaUrl != null) 'media_url': mediaUrl,
       }),
     );
-    return jsonDecode(response.body);
+    final data = _decode(response) as Map<String, dynamic>;
+    if (data['message'] != null) {
+      return _adaptMessage(Map<String, dynamic>.from(data['message']));
+    }
+    return {};
   }
 
-  static Future<void> updateMessage(int messageId, String text) async {
-    await _put(
-      Uri.parse('$baseUrl/chat/messages/$messageId'),
-      headers: _headers,
-      body: jsonEncode({'text': text}),
-    );
-  }
-
-  static Future<void> deleteMessage(int messageId) async {
-    await _delete(
-      Uri.parse('$baseUrl/chat/messages/$messageId'),
-      headers: _headers,
-    );
-  }
-
-  static Future<void> clearChat(int chatId) async {
-    await _delete(
-      Uri.parse('$baseUrl/chat/$chatId/messages'),
-      headers: _headers,
-    );
-  }
-
-  static Future<void> deleteChat(int chatId) async {
-    await _delete(
-      Uri.parse('$baseUrl/chat/$chatId'),
-      headers: _headers,
-    );
-  }
-
-  static Future<void> updateTypingStatus(int chatId, String uid, bool isTyping) async {
-    await _put(
-      Uri.parse('$baseUrl/chat/$chatId/typing'),
-      headers: _headers,
-      body: jsonEncode({'uid': uid, 'isTyping': isTyping}),
-    );
-  }
-
-  static Future<Map<String, dynamic>> getTypingUser(int chatId) async {
-    final response = await _get(
-      Uri.parse('$baseUrl/chat/$chatId/typing'),
-      headers: _headers,
-    );
-    return jsonDecode(response.body);
-  }
-
-  // Search messages
-  static Future<List<dynamic>> searchMessages(int chatId, String query) async {
-    final response = await _get(
-      Uri.parse('$baseUrl/chat/$chatId/search?query=$query&uid=$_uid'),
-      headers: _headers,
-    );
-    final data = jsonDecode(response.body);
-    return data is List ? data : [];
-  }
-
-  // Reactions
-  static Future<void> addReaction(int messageId, String emoji) async {
-    await _post(
-      Uri.parse('$baseUrl/chat/messages/$messageId/reactions'),
-      headers: _headers,
-      body: jsonEncode({'userUid': _uid, 'emoji': emoji}),
-    );
-  }
-
-  static Future<void> removeReaction(int messageId, String emoji) async {
-    await _delete(
-      Uri.parse('$baseUrl/chat/messages/$messageId/reactions'),
-      headers: _headers,
-      body: jsonEncode({'userUid': _uid, 'emoji': emoji}),
-    );
-  }
-
-  static Future<List<dynamic>> getReactions(int messageId) async {
-    final response = await _get(
-      Uri.parse('$baseUrl/chat/messages/$messageId/reactions'),
-      headers: _headers,
-    );
-    return jsonDecode(response.body);
-  }
-
-  // Read receipts
-  static Future<void> markAsRead(int chatId) async {
-    await _post(
-      Uri.parse('$baseUrl/chat/$chatId/read'),
-      headers: _headers,
-      body: jsonEncode({'userUid': _uid}),
-    );
-  }
-
-  // Pin messages
-  static Future<void> pinMessage(int messageId, bool isPinned) async {
-    await _put(
-      Uri.parse('$baseUrl/chat/messages/$messageId/pin'),
-      headers: _headers,
-      body: jsonEncode({'isPinned': isPinned}),
-    );
-  }
-
-  static Future<List<dynamic>> getPinnedMessages(int chatId) async {
-    final response = await _get(
-      Uri.parse('$baseUrl/chat/$chatId/pinned'),
-      headers: _headers,
-    );
-    final data = jsonDecode(response.body);
-    return data is List ? data : [];
-  }
-
-  // Delete for me / everyone
-  static Future<void> deleteForMe(int messageId) async {
-    await _post(
-      Uri.parse('$baseUrl/chat/messages/$messageId/delete-for-me'),
-      headers: _headers,
-      body: jsonEncode({'userUid': _uid}),
-    );
-  }
-
-  static Future<void> deleteForEveryone(int messageId) async {
-    await _post(
-      Uri.parse('$baseUrl/chat/messages/$messageId/delete-for-everyone'),
-      headers: _headers,
-    );
-  }
-
-  // Mute/Archive
-  static Future<void> muteChat(int chatId, bool isMuted) async {
-    await _put(
-      Uri.parse('$baseUrl/chat/$chatId/mute'),
-      headers: _headers,
-      body: jsonEncode({'userUid': _uid, 'isMuted': isMuted}),
-    );
-  }
-
-  static Future<void> archiveChat(int chatId, bool isArchived) async {
-    await _put(
-      Uri.parse('$baseUrl/chat/$chatId/archive'),
-      headers: _headers,
-      body: jsonEncode({'userUid': _uid, 'isArchived': isArchived}),
-    );
-  }
-
-  // Reply message
   static Future<Map<String, dynamic>> sendReplyMessage({
     required int chatId,
     required String senderUid,
@@ -355,76 +418,174 @@ class ApiService {
     String? replyToText,
     String? replyToSender,
   }) async {
+    final content = text.isNotEmpty ? text : ' ';
     final response = await _post(
-      Uri.parse('$baseUrl/chat/$chatId/messages/reply'),
+      Uri.parse('$baseUrl/chat/$chatId/messages'),
       headers: _headers,
       body: jsonEncode({
-        'senderUid': senderUid,
-        'senderName': senderName,
-        'text': text,
-        'messageType': messageType,
-        'imageBase64': imageBase64,
-        'voiceBase64': voiceBase64,
-        'voiceDuration': voiceDuration,
-        'replyToId': replyToId,
-        'replyToText': replyToText,
-        'replyToSender': replyToSender,
+        'content': content,
+        'type': messageType,
+        if (replyToId != null) 'reply_to_id': replyToId.toString(),
       }),
     );
-    return jsonDecode(response.body);
+    final data = _decode(response) as Map<String, dynamic>;
+    if (data['message'] != null) {
+      return _adaptMessage(Map<String, dynamic>.from(data['message']));
+    }
+    return {};
   }
 
-  // Block user
-  static Future<void> blockUser(String blockedUid) async {
-    await _post(
-      Uri.parse('$baseUrl/user/$_uid/block'),
+  static Future<void> updateMessage(int messageId, String text) async {
+    await _put(
+      Uri.parse('$baseUrl/chat/messages/$messageId'),
       headers: _headers,
-      body: jsonEncode({'blockedUid': blockedUid}),
+      body: jsonEncode({'content': text}),
     );
   }
 
-  static Future<void> unblockUser(String blockedUid) async {
+  static Future<void> deleteMessage(int messageId) async {
     await _delete(
-      Uri.parse('$baseUrl/user/$_uid/block'),
+      Uri.parse('$baseUrl/chat/messages/$messageId?for_everyone=false'),
       headers: _headers,
-      body: jsonEncode({'blockedUid': blockedUid}),
     );
   }
 
-  static Future<List<dynamic>> getBlockedUsers() async {
+  static Future<void> deleteForMe(int messageId) async {
+    await _delete(
+      Uri.parse('$baseUrl/chat/messages/$messageId?for_everyone=false'),
+      headers: _headers,
+    );
+  }
+
+  static Future<void> deleteForEveryone(int messageId) async {
+    await _delete(
+      Uri.parse('$baseUrl/chat/messages/$messageId?for_everyone=true'),
+      headers: _headers,
+    );
+  }
+
+  /// Xóa toàn bộ lịch sử tin nhắn của một cuộc trò chuyện.
+  static Future<bool> clearChat(int chatId) async {
+    final response = await _delete(Uri.parse('$baseUrl/chat/$chatId/messages'), headers: _headers);
+    return response.statusCode == 200;
+  }
+
+  /// Backend chưa có endpoint xóa chat -> bỏ qua.
+  static Future<void> deleteChat(int chatId) async {}
+
+  /// Backend chưa có endpoint typing -> bỏ qua.
+  static Future<void> updateTypingStatus(int chatId, String uid, bool isTyping) async {}
+
+  static Future<Map<String, dynamic>> getTypingUser(int chatId) async => {};
+
+  /// Tìm kiếm tin nhắn theo từ khóa trong một cuộc trò chuyện.
+  static Future<List<dynamic>> searchMessages(int chatId, String query) async {
+    if (query.trim().isEmpty) return [];
     final response = await _get(
-      Uri.parse('$baseUrl/user/$_uid/blocked'),
+      Uri.parse('$baseUrl/chat/$chatId/search?q=${Uri.encodeComponent(query)}'),
       headers: _headers,
     );
-    return jsonDecode(response.body);
+    if (response.statusCode != 200) return [];
+    final data = _decode(response);
+    final messages = (data is Map ? data['messages'] : data) as List? ?? [];
+    return messages.map((m) => _adaptMessage(Map<String, dynamic>.from(m as Map))).toList();
   }
 
-  // Group management
+  // ==================== Reactions ====================
+
+  static Future<void> addReaction(int messageId, String emoji) async {
+    await _post(
+      Uri.parse('$baseUrl/chat/messages/$messageId/reactions'),
+      headers: _headers,
+      body: jsonEncode({'emoji': emoji}),
+    );
+  }
+
+  /// Backend đã dùng toggle qua addReaction nên removeReaction gọi lại addReaction.
+  static Future<void> removeReaction(int messageId, String emoji) async {
+    await addReaction(messageId, emoji);
+  }
+
+  static Future<List<dynamic>> getReactions(int messageId) async => [];
+
+  // ==================== Read receipts ====================
+
+  static Future<void> markAsRead(int chatId) async {
+    try {
+      await _post(Uri.parse('$baseUrl/chat/$chatId/read'), headers: _headers);
+    } catch (_) {}
+  }
+
+  // ==================== Pin (tối đa 3 tin mỗi chat) ====================
+
+  /// Ghim/bỏ ghim. Trả về true nếu thành công, kèm thông báo lỗi nếu có.
+  static Future<Map<String, dynamic>> pinMessage(int chatId, int messageId) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/chat/$chatId/messages/$messageId/pin'),
+      headers: _headers,
+    );
+    final data = _decode(response) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return {'ok': true, 'is_pinned': data['is_pinned'] == true};
+    }
+    return {'ok': false, 'error': data['detail'] ?? 'Ghim thất bại'};
+  }
+
+  static Future<List<dynamic>> getPinnedMessages(int chatId) async {
+    final response = await _get(Uri.parse('$baseUrl/chat/$chatId/pinned'), headers: _headers);
+    if (response.statusCode != 200) return [];
+    final data = _decode(response);
+    final messages = (data is Map ? data['messages'] : data) as List? ?? [];
+    return messages.map((m) => _adaptMessage(Map<String, dynamic>.from(m as Map))).toList();
+  }
+
+  // ==================== Mute / Archive ====================
+
+  static Future<void> muteChat(int chatId, bool isMuted) async {
+    try {
+      await _post(Uri.parse('$baseUrl/chat/$chatId/mute'), headers: _headers);
+    } catch (_) {}
+  }
+
+  static Future<void> archiveChat(int chatId, bool isArchived) async {}
+
+  // ==================== Block (backend chưa hỗ trợ) ====================
+
+  static Future<void> blockUser(String blockedUid) async {}
+
+  static Future<void> unblockUser(String blockedUid) async {}
+
+  static Future<List<dynamic>> getBlockedUsers() async => [];
+
+  // ==================== Group management ====================
+
   static Future<Map<String, dynamic>> getChatInfo(int chatId) async {
     final response = await _get(
-      Uri.parse('$baseUrl/chat/$chatId/info'),
+      Uri.parse('$baseUrl/chat/$chatId'),
       headers: _headers,
     );
-    return jsonDecode(response.body);
+    final data = _decode(response) as Map<String, dynamic>;
+    final chat = data['chat'] as Map? ?? {};
+    final participants = (chat['participants'] as List?)
+            ?.map((p) => _adaptUser(Map<String, dynamic>.from(p as Map)))
+            .toList() ??
+        [];
+    return {
+      'chat_name': chat['name']?.toString() ?? '',
+      'group_avatar': chat['avatar_url']?.toString() ?? '',
+      'created_by': chat['creator_id']?.toString() ?? '',
+      'participants': participants,
+    };
   }
 
-  static Future<void> updateGroup(int chatId, {String? groupName, String? groupAvatar}) async {
-    await _put(
-      Uri.parse('$baseUrl/chat/$chatId/group'),
-      headers: _headers,
-      body: jsonEncode({
-        'adminUid': _uid,
-        if (groupName != null) 'groupName': groupName,
-        if (groupAvatar != null) 'groupAvatar': groupAvatar,
-      }),
-    );
-  }
+  /// Backend chưa có endpoint cập nhật nhóm -> bỏ qua.
+  static Future<void> updateGroup(int chatId, {String? groupName, String? groupAvatar}) async {}
 
   static Future<void> addParticipant(int chatId, String userUid) async {
     await _post(
       Uri.parse('$baseUrl/chat/$chatId/participants'),
       headers: _headers,
-      body: jsonEncode({'userUid': userUid, 'adminUid': _uid}),
+      body: jsonEncode({'user_ids': [userUid]}),
     );
   }
 
@@ -432,7 +593,6 @@ class ApiService {
     await _delete(
       Uri.parse('$baseUrl/chat/$chatId/participants/$userUid'),
       headers: _headers,
-      body: jsonEncode({'adminUid': _uid}),
     );
   }
 
@@ -440,10 +600,198 @@ class ApiService {
     await _post(
       Uri.parse('$baseUrl/chat/$chatId/leave'),
       headers: _headers,
-      body: jsonEncode({'userUid': _uid}),
     );
   }
 
-  static String? get uid => _uid;
-  static bool get isLoggedIn => _token != null && _uid != null;
+  // ==================== Admin ====================
+
+  /// Thống kê tổng quan cho dashboard admin.
+  static Future<Map<String, dynamic>> adminGetStats() async {
+    final response = await _get(Uri.parse('$baseUrl/admin/stats'), headers: _headers);
+    if (response.statusCode != 200) return {};
+    return Map<String, dynamic>.from(_decode(response) as Map);
+  }
+
+  /// Danh sách người dùng (tìm kiếm + phân trang).
+  static Future<Map<String, dynamic>> adminGetUsers({String? query, int page = 1, int limit = 50}) async {
+    final q = (query != null && query.isNotEmpty) ? '&q=${Uri.encodeComponent(query)}' : '';
+    final response = await _get(
+      Uri.parse('$baseUrl/admin/users?page=$page&limit=$limit$q'),
+      headers: _headers,
+    );
+    if (response.statusCode != 200) return {'users': [], 'total': 0};
+    final data = _decode(response) as Map<String, dynamic>;
+    final users = (data['users'] as List?)
+            ?.map((u) => _adaptUser(Map<String, dynamic>.from(u as Map)))
+            .toList() ??
+        [];
+    return {'users': users, 'total': data['total'] ?? users.length};
+  }
+
+  static Future<Map<String, dynamic>> adminCreateUser({
+    required String email,
+    required String password,
+    required String displayName,
+    String role = 'user',
+  }) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/admin/users'),
+      headers: _headers,
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+        'display_name': displayName,
+        'role': role,
+      }),
+    );
+    final data = _decode(response) as Map<String, dynamic>;
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return {'ok': true, 'user': data['user']};
+    }
+    return {'ok': false, 'error': data['detail'] ?? 'Tạo người dùng thất bại'};
+  }
+
+  static Future<bool> adminUpdateUser(String userId, {String? displayName, String? role, String? email, String? avatarUrl}) async {
+    final response = await _put(
+      Uri.parse('$baseUrl/admin/users/$userId'),
+      headers: _headers,
+      body: jsonEncode({
+        if (displayName != null) 'display_name': displayName,
+        if (role != null) 'role': role,
+        if (email != null) 'email': email,
+        if (avatarUrl != null) 'avatar_url': avatarUrl,
+      }),
+    );
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> adminLockUser(String userId) async {
+    final response = await _post(Uri.parse('$baseUrl/admin/users/$userId/lock'), headers: _headers);
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> adminUnlockUser(String userId) async {
+    final response = await _post(Uri.parse('$baseUrl/admin/users/$userId/unlock'), headers: _headers);
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> adminResetPassword(String userId, String newPassword) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/admin/users/$userId/reset-password'),
+      headers: _headers,
+      body: jsonEncode({'new_password': newPassword}),
+    );
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> adminDeleteUser(String userId) async {
+    final response = await _delete(Uri.parse('$baseUrl/admin/users/$userId'), headers: _headers);
+    return response.statusCode == 200;
+  }
+
+  static Future<List<dynamic>> adminGetGroups() async {
+    final response = await _get(Uri.parse('$baseUrl/admin/groups'), headers: _headers);
+    if (response.statusCode != 200) return [];
+    final data = _decode(response) as Map<String, dynamic>;
+    return (data['groups'] as List?) ?? [];
+  }
+
+  static Future<bool> adminDeleteGroup(String chatId) async {
+    final response = await _delete(Uri.parse('$baseUrl/admin/groups/$chatId'), headers: _headers);
+    return response.statusCode == 200;
+  }
+
+  /// Chi tiết nhóm cho admin: {group, members}.
+  static Future<Map<String, dynamic>> adminGetGroupDetail(String chatId) async {
+    final response = await _get(Uri.parse('$baseUrl/admin/groups/$chatId'), headers: _headers);
+    if (response.statusCode != 200) return {};
+    final data = _decode(response) as Map<String, dynamic>;
+    final group = Map<String, dynamic>.from(data['group'] as Map? ?? {});
+    final members = (data['members'] as List?)
+            ?.map((m) => _adaptUser(Map<String, dynamic>.from(m as Map)))
+            .toList() ??
+        [];
+    return {'group': group, 'members': members};
+  }
+
+  static Future<bool> adminUpdateGroup(String chatId, {String? name, String? avatarUrl}) async {
+    final response = await _put(
+      Uri.parse('$baseUrl/admin/groups/$chatId'),
+      headers: _headers,
+      body: jsonEncode({
+        if (name != null) 'name': name,
+        if (avatarUrl != null) 'avatar_url': avatarUrl,
+      }),
+    );
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> adminAddGroupMembers(String chatId, List<String> userIds) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/admin/groups/$chatId/members'),
+      headers: _headers,
+      body: jsonEncode({'user_ids': userIds}),
+    );
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> adminRemoveGroupMember(String chatId, String userId) async {
+    final response = await _delete(
+      Uri.parse('$baseUrl/admin/groups/$chatId/members/$userId'),
+      headers: _headers,
+    );
+    return response.statusCode == 200;
+  }
+
+  // ==================== Bạn bè ====================
+
+  static Future<Map<String, dynamic>> sendFriendRequest(String email) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/friend/request'),
+      headers: _headers,
+      body: jsonEncode({'email': email}),
+    );
+    final data = _decode(response) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return {'ok': true, 'message': data['message'] ?? 'Đã gửi lời mời'};
+    }
+    return {'ok': false, 'error': data['detail'] ?? 'Gửi lời mời thất bại'};
+  }
+
+  static Future<List<dynamic>> getFriends() async {
+    final response = await _get(Uri.parse('$baseUrl/friend/list'), headers: _headers);
+    if (response.statusCode != 200) return [];
+    final data = _decode(response) as Map<String, dynamic>;
+    return (data['friends'] as List?)
+            ?.map((u) => _adaptUser(Map<String, dynamic>.from(u as Map)))
+            .toList() ??
+        [];
+  }
+
+  static Future<List<dynamic>> getFriendRequests() async {
+    final response = await _get(Uri.parse('$baseUrl/friend/requests'), headers: _headers);
+    if (response.statusCode != 200) return [];
+    final data = _decode(response) as Map<String, dynamic>;
+    return (data['requests'] as List?)?.map((u) {
+          final m = _adaptUser(Map<String, dynamic>.from(u as Map));
+          m['friendship_id'] = (u as Map)['friendship_id']?.toString() ?? '';
+          return m;
+        }).toList() ??
+        [];
+  }
+
+  static Future<bool> acceptFriendRequest(String friendshipId) async {
+    final response = await _post(Uri.parse('$baseUrl/friend/$friendshipId/accept'), headers: _headers);
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> rejectFriendRequest(String friendshipId) async {
+    final response = await _post(Uri.parse('$baseUrl/friend/$friendshipId/reject'), headers: _headers);
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> unfriend(String userId) async {
+    final response = await _delete(Uri.parse('$baseUrl/friend/$userId'), headers: _headers);
+    return response.statusCode == 200;
+  }
 }

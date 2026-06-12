@@ -9,7 +9,12 @@ import '../../../core/services/api_service.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class GroupSettingsScreen extends StatefulWidget {
-  const GroupSettingsScreen({super.key});
+  final int chatId;
+  
+  const GroupSettingsScreen({
+    super.key,
+    required this.chatId,
+  });
 
   @override
   State<GroupSettingsScreen> createState() => _GroupSettingsScreenState();

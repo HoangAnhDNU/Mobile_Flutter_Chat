@@ -1,3 +1,14 @@
+.vscode
+.agent
+.github
+.gemini
+
+.env
+.local
+
+.idea
+.playwright-mcp
+
 node_modules
 
 # Miscellaneous
@@ -55,4 +66,3 @@ app.*.map.json
 
 # Environment files
 .env
-.env.*

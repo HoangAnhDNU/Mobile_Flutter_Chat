@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_config.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/time_utils.dart';
+import '../../../core/utils/app_localizations.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -15,17 +18,16 @@ class ChatListScreen extends StatefulWidget {
 }
 
 class _ChatListScreenState extends State<ChatListScreen> {
-  int _currentTabIndex = 0;
   List<dynamic> _chats = [];
-  List<dynamic> _users = [];
   bool _isLoading = false;
 
   ImageProvider _getImageProvider(String url) {
-    if (url.startsWith('data:image')) {
-      final base64Str = url.split(',').last;
+    final resolvedUrl = AppConfig.resolveMediaUrl(url);
+    if (resolvedUrl.startsWith('data:image')) {
+      final base64Str = resolvedUrl.split(',').last;
       return MemoryImage(base64Decode(base64Str));
     }
-    return CachedNetworkImageProvider(url);
+    return CachedNetworkImageProvider(resolvedUrl);
   }
 
   @override
@@ -40,7 +42,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
       final authProvider = context.read<AuthProvider>();
       if (authProvider.uid != null) {
         _chats = await ApiService.getChats();
-        _users = await ApiService.getUsers();
       }
     } catch (e) {
       debugPrint('Error loading data: $e');
@@ -54,117 +55,41 @@ class _ChatListScreenState extends State<ChatListScreen> {
       appBar: AppBar(
         leading: Padding(
           padding: const EdgeInsets.all(8.0),
-          child: CircleAvatar(
-            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-            child: const Icon(Icons.person, color: AppColors.primary, size: 20),
+          child: Consumer<AuthProvider>(
+            builder: (context, auth, _) => CircleAvatar(
+              backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+              backgroundImage: (auth.avatarUrl != null && auth.avatarUrl!.isNotEmpty)
+                  ? _getImageProvider(auth.avatarUrl!)
+                  : null,
+              child: (auth.avatarUrl == null || auth.avatarUrl!.isEmpty)
+                  ? const Icon(Icons.person, color: AppColors.primary, size: 20)
+                  : null,
+            ),
           ),
         ),
-        title: const Text(
-          'Messages',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Text(
+          AppLocalizations.of(context).translate('chats'),
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.people_alt_outlined),
+            tooltip: 'Bạn bè',
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.friends),
+          ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.pushNamed(context, AppRoutes.profile),
           ),
         ],
       ),
-      body: _buildBody(),
+      body: _buildChatList(),
       floatingActionButton: FloatingActionButton(
         onPressed: () => Navigator.pushNamed(context, AppRoutes.createChat),
         backgroundColor: AppColors.primary,
         child: const Icon(Icons.edit_square, color: Colors.white),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentTabIndex,
-        onTap: (index) => setState(() => _currentTabIndex = index),
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.textSecondary,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.chat_bubble), label: 'Chats'),
-          BottomNavigationBarItem(icon: Icon(Icons.call), label: 'Calls'),
-          BottomNavigationBarItem(icon: Icon(Icons.people), label: 'People'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    switch (_currentTabIndex) {
-      case 0:
-        return _buildChatList();
-      case 1:
-        return const Center(child: Text('Calls - Tùy chọn'));
-      case 2:
-        return _buildPeopleList();
-      default:
-        return _buildChatList();
-    }
-  }
-
-  Widget _buildPeopleList() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_users.isEmpty) {
-      return const Center(child: Text('Không có người dùng'));
-    }
-
-    return ListView.separated(
-      itemCount: _users.length,
-      separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
-      itemBuilder: (context, index) {
-        final user = _users[index] as Map<String, dynamic>;
-        final userId = user['uid'] as String;
-        final displayName = user['display_name'] ?? 'Unknown';
-        final email = user['email'] ?? '';
-        final avatarUrl = user['avatar_url'] ?? '';
-        final isOnline = (user['is_online'] == 1 || user['is_online'] == true);
-
-        return ListTile(
-          leading: Stack(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                backgroundImage: avatarUrl.isNotEmpty ? _getImageProvider(avatarUrl) : null,
-                child: avatarUrl.isEmpty
-                    ? Text(
-                        displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
-                      )
-                    : null,
-              ),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: isOnline ? AppColors.success : AppColors.textSecondary,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
-          subtitle: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-          trailing: Text(
-            isOnline ? 'Online' : 'Offline',
-            style: TextStyle(
-              fontSize: 12,
-              color: isOnline ? AppColors.success : AppColors.textSecondary,
-            ),
-          ),
-          onTap: () => _startChatWithUser(userId, displayName),
-        );
-      },
     );
   }
 
@@ -196,14 +121,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
           children: [
             Icon(Icons.chat_bubble_outline, size: 64, color: AppColors.textSecondary.withValues(alpha: 0.5)),
             const SizedBox(height: 16),
-            const Text(
-              'Chưa có cuộc trò chuyện nào',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
+            Text(
+              AppLocalizations.of(context).translate('no_chats'),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Bấm + để bắt đầu chat',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+            Text(
+              AppLocalizations.of(context).translate('start_chat'),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
             ),
           ],
         ),
@@ -253,10 +178,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final lastMessage = chat['last_message'] ?? '';
     final lastMessageTime = chat['last_message_time'];
     final chatName = chat['chat_name'] ?? '';
+    final isGroup = chat['is_group'] == true;
     final otherUser = chat['otherUser'] as Map<String, dynamic>?;
 
     String displayName = chatName;
-    String avatarUrl = '';
+    // Với nhóm: dùng avatar của nhóm. Với chat 1-1: dùng avatar đối phương.
+    String avatarUrl = isGroup ? (chat['avatar_url']?.toString() ?? '') : '';
 
     if (otherUser != null) {
       if (displayName.isEmpty) {
@@ -297,25 +224,31 @@ class _ChatListScreenState extends State<ChatListScreen> {
         Navigator.pushNamed(
           context,
           AppRoutes.chatDetail,
-          arguments: {'chatId': chatId, 'chatName': displayName},
+          arguments: {
+            'chatId': chatId,
+            'chatName': displayName,
+            'chatAvatar': avatarUrl,
+            'isGroup': chat['is_group'] == true,
+          },
         );
       },
     );
   }
 
   String _formatTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final diff = now.difference(dateTime);
+    final now = TimeUtils.toBangkokTime(DateTime.now());
+    final localDateTime = TimeUtils.toBangkokTime(dateTime);
+    final diff = now.difference(localDateTime);
 
     if (diff.inDays == 0) {
-      return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+      return TimeUtils.formatTime(dateTime);
     } else if (diff.inDays == 1) {
-      return 'Yesterday';
+      return 'Hôm qua';
     } else if (diff.inDays < 7) {
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return days[dateTime.weekday - 1];
+      const days = ['Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy', 'Chủ nhật'];
+      return days[localDateTime.weekday - 1];
     } else {
-      return '${dateTime.day}/${dateTime.month}';
+      return TimeUtils.formatDateShort(dateTime);
     }
   }
 }

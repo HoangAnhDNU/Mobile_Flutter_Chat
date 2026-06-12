@@ -1,12 +1,18 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_config.dart';
+import '../../../core/utils/time_utils.dart';
+import '../../../core/utils/downloader.dart';
+import '../screens/image_viewer_screen.dart';
 
 class MessageBubble extends StatelessWidget {
   final String text;
   final bool isMe;
   final String senderName;
+  final String? senderAvatar;
   final DateTime? timestamp;
   final bool isEdited;
   final String? imageUrl;
@@ -18,6 +24,8 @@ class MessageBubble extends StatelessWidget {
   final String? replyToSender;
   final List<Map<String, dynamic>> reactions;
   final bool isPinned;
+  final bool isDeleted;
+  final int? voiceDuration;
   final VoidCallback? onSwipeReply;
 
   const MessageBubble({
@@ -25,6 +33,7 @@ class MessageBubble extends StatelessWidget {
     required this.text,
     required this.isMe,
     required this.senderName,
+    this.senderAvatar,
     this.timestamp,
     this.isEdited = false,
     this.imageUrl,
@@ -36,160 +45,212 @@ class MessageBubble extends StatelessWidget {
     this.replyToSender,
     this.reactions = const [],
     this.isPinned = false,
+    this.isDeleted = false,
+    this.voiceDuration,
     this.onSwipeReply,
   });
 
+  ImageProvider _getImageProvider(String url) {
+    final resolvedUrl = AppConfig.resolveMediaUrl(url);
+    if (resolvedUrl.startsWith('data:image')) {
+      final base64Str = resolvedUrl.split(',').last;
+      return MemoryImage(base64Decode(base64Str));
+    }
+    return CachedNetworkImageProvider(resolvedUrl);
+  }
+
   @override
   Widget build(BuildContext context) {
-    Widget bubble = Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Column(
-        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          if (isPinned)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.push_pin, size: 12, color: AppColors.textSecondary),
-                  const SizedBox(width: 2),
-                  Text('Đã ghim', style: TextStyle(fontSize: 10, color: AppColors.textSecondary)),
-                ],
-              ),
-            ),
-          Container(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.75,
-            ),
-            margin: const EdgeInsets.symmetric(vertical: 2),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: isMe ? AppColors.primary : const Color(0xFFEEEEEE),
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
-                bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+    Widget bubbleContent = Column(
+      crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        if (isPinned)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                if (replyToText != null && replyToText!.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: isMe ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border(
-                        left: BorderSide(color: isMe ? Colors.white70 : AppColors.primary, width: 3),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          replyToSender ?? '',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: isMe ? Colors.white70 : AppColors.primary,
-                          ),
-                        ),
-                        Text(
-                          replyToText!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isMe ? Colors.white60 : AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
+                Icon(Icons.push_pin, size: 12, color: AppColors.textSecondary),
+                const SizedBox(width: 2),
+                Text('Đã ghim', style: TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+              ],
+            ),
+          ),
+        Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.7,
+          ),
+          margin: const EdgeInsets.symmetric(vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isMe ? AppColors.primary : const Color(0xFFEEEEEE),
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(16),
+              topRight: const Radius.circular(16),
+              bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
+              bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              if (!isDeleted && replyToText != null && replyToText!.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: isMe ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border(
+                      left: BorderSide(color: isMe ? Colors.white70 : AppColors.primary, width: 3),
                     ),
                   ),
-                if (type == 'image' && imageBase64 != null)
-                  ClipRRect(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        replyToSender ?? '',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: isMe ? Colors.white70 : AppColors.primary,
+                        ),
+                      ),
+                      Text(
+                        replyToText!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isMe ? Colors.white60 : AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (isDeleted)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.block, size: 15, color: isMe ? Colors.white70 : AppColors.textSecondary),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Tin nhắn đã được thu hồi',
+                      style: TextStyle(
+                        color: isMe ? Colors.white70 : AppColors.textSecondary,
+                        fontStyle: FontStyle.italic,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                )
+              else if (type == 'image' && (imageBase64 != null || imageUrl != null))
+                GestureDetector(
+                  onTap: () {
+                    final src = (imageBase64 != null && imageBase64!.isNotEmpty)
+                        ? (imageBase64!.startsWith('data:') ? imageBase64! : 'data:image/png;base64,$imageBase64')
+                        : imageUrl!;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => ImageViewerScreen(imageSource: src)),
+                    );
+                  },                  child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(
-                      base64Decode(imageBase64!),
+                    child: Image(
+                      image: _getImageProvider(
+                        (imageBase64 != null && imageBase64!.isNotEmpty) ? imageBase64! : imageUrl!,
+                      ),
                       width: 200,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image),
                     ),
-                  )
-                else if (type == 'image' && imageUrl != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: CachedNetworkImage(
-                      imageUrl: imageUrl!,
-                      width: 200,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => const SizedBox(
-                        width: 200,
-                        height: 150,
-                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                      ),
-                      errorWidget: (context, url, error) => const Icon(Icons.error),
-                    ),
-                  )
-                else if (type == 'voice')
-                  _buildVoiceBubble()
-                else if (_containsUrl(text))
-                  _buildLinkPreview()
-                else
-                  Text(
-                    text,
-                    style: TextStyle(
-                      color: isMe ? Colors.white : AppColors.textPrimary,
-                      fontSize: 15,
-                    ),
                   ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (isEdited)
-                      Text(
-                        '(đã chỉnh sửa) ',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: isMe ? Colors.white70 : AppColors.textSecondary,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
+                )
+              else if (type == 'voice')
+                VoiceMessagePlayer(
+                  source: (imageUrl != null && imageUrl!.isNotEmpty) ? imageUrl! : '',
+                  isMe: isMe,
+                  durationMs: voiceDuration,
+                )
+              else if (_containsUrl(text))
+                _buildLinkPreview()
+              else
+                Text(
+                  text,
+                  style: TextStyle(
+                    color: isMe ? Colors.white : AppColors.textPrimary,
+                    fontSize: 15,
+                  ),
+                ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isEdited && !isDeleted)
                     Text(
-                      _formatTimestamp(),
+                      '(đã chỉnh sửa) ',
                       style: TextStyle(
                         fontSize: 10,
                         color: isMe ? Colors.white70 : AppColors.textSecondary,
+                        fontStyle: FontStyle.italic,
                       ),
                     ),
-                    if (isMe) ...[
-                      const SizedBox(width: 4),
-                      _buildDeliveryIcon(),
-                    ],
+                  Text(
+                    _formatTimestamp(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isMe ? Colors.white70 : AppColors.textSecondary,
+                    ),
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 4),
+                    _buildDeliveryIcon(),
                   ],
-                ),
-              ],
+                ],
+              ),
+            ],
+          ),
+        ),
+        if (reactions.isNotEmpty && !isDeleted)
+          Container(
+            margin: const EdgeInsets.only(top: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 2)],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: _buildReactionChips(),
             ),
           ),
-          if (reactions.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(top: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 2)],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: _buildReactionChips(),
-              ),
+      ],
+    );
+
+    Widget messageWithAvatar = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      child: Row(
+        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isMe) ...[
+            CircleAvatar(
+              radius: 14,
+              backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+              backgroundImage: (senderAvatar != null && senderAvatar!.isNotEmpty)
+                  ? _getImageProvider(senderAvatar!)
+                  : null,
+              child: (senderAvatar == null || senderAvatar!.isEmpty)
+                  ? Text(
+                      senderName.isNotEmpty ? senderName[0].toUpperCase() : '?',
+                      style: const TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.bold),
+                    )
+                  : null,
             ),
+            const SizedBox(width: 8),
+          ],
+          messageWithAvatarWrap(bubbleContent),
         ],
       ),
     );
@@ -209,11 +270,15 @@ class MessageBubble extends StatelessWidget {
             child: Icon(Icons.reply, color: AppColors.textSecondary),
           ),
         ),
-        child: GestureDetector(onLongPress: onLongPress, child: bubble),
+        child: GestureDetector(onLongPress: onLongPress, child: messageWithAvatar),
       );
     }
 
-    return GestureDetector(onLongPress: onLongPress, child: bubble);
+    return GestureDetector(onLongPress: onLongPress, child: messageWithAvatar);
+  }
+
+  Widget messageWithAvatarWrap(Widget child) {
+    return child;
   }
 
   Widget _buildDeliveryIcon() {
@@ -225,26 +290,6 @@ class MessageBubble extends StatelessWidget {
       default:
         return Icon(Icons.done, size: 14, color: Colors.white70);
     }
-  }
-
-  Widget _buildVoiceBubble() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.play_arrow, color: isMe ? Colors.white : AppColors.primary),
-        const SizedBox(width: 8),
-        Container(
-          width: 120,
-          height: 4,
-          decoration: BoxDecoration(
-            color: isMe ? Colors.white30 : Colors.grey[300],
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Icon(Icons.mic, size: 16, color: isMe ? Colors.white70 : AppColors.textSecondary),
-      ],
-    );
   }
 
   bool _containsUrl(String text) {
@@ -314,6 +359,114 @@ class MessageBubble extends StatelessWidget {
 
   String _formatTimestamp() {
     if (timestamp == null) return '';
-    return '${timestamp!.hour.toString().padLeft(2, '0')}:${timestamp!.minute.toString().padLeft(2, '0')}';
+    return TimeUtils.formatTime(timestamp!);
+  }
+}
+
+/// Trình phát tin nhắn thoại: phát/tạm dừng ngay trong ứng dụng + tải về.
+class VoiceMessagePlayer extends StatefulWidget {
+  final String source; // data URI audio hoặc URL
+  final bool isMe;
+  final int? durationMs;
+
+  const VoiceMessagePlayer({
+    super.key,
+    required this.source,
+    required this.isMe,
+    this.durationMs,
+  });
+
+  @override
+  State<VoiceMessagePlayer> createState() => _VoiceMessagePlayerState();
+}
+
+class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
+  final AudioPlayer _player = AudioPlayer();
+  bool _isPlaying = false;
+  Duration _position = Duration.zero;
+  Duration _total = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _player.onPlayerStateChanged.listen((state) {
+      if (mounted) setState(() => _isPlaying = state == PlayerState.playing);
+    });
+    _player.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _position = p);
+    });
+    _player.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _total = d);
+    });
+    _player.onPlayerComplete.listen((_) {
+      if (mounted) setState(() {
+        _isPlaying = false;
+        _position = Duration.zero;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggle() async {
+    if (widget.source.isEmpty) return;
+    if (_isPlaying) {
+      await _player.pause();
+    } else {
+      final src = widget.source;
+      if (src.startsWith('data:')) {
+        await _player.play(BytesSource(base64Decode(src.split(',').last)));
+      } else {
+        await _player.play(UrlSource(AppConfig.resolveMediaUrl(src)));
+      }
+    }
+  }
+
+  void _download() {
+    if (widget.source.isEmpty) return;
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    downloadDataUri(widget.source, 'amthanh_$ts.m4a');
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đang tải âm thanh về máy...')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = widget.isMe ? Colors.white : AppColors.primary;
+    final total = _total.inMilliseconds > 0
+        ? _total
+        : Duration(milliseconds: widget.durationMs ?? 0);
+    final progress = (total.inMilliseconds > 0)
+        ? (_position.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: _toggle,
+          child: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: fg, size: 30),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 110,
+          child: LinearProgressIndicator(
+            value: progress,
+            backgroundColor: widget.isMe ? Colors.white30 : Colors.grey[300],
+            valueColor: AlwaysStoppedAnimation(fg),
+            minHeight: 3,
+          ),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: _download,
+          child: Icon(Icons.download, size: 18, color: widget.isMe ? Colors.white70 : AppColors.textSecondary),
+        ),
+      ],
+    );
   }
 }

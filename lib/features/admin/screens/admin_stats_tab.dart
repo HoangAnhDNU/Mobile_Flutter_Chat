@@ -1,0 +1,151 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import '../../../core/constants/app_colors.dart';
+import '../../../core/services/api_service.dart';
+import '../../../core/services/socket_service.dart';
+
+/// Tab Thống kê hệ thống - bố cục gọn dạng lưới nhỏ + danh sách.
+class AdminStatsTab extends StatefulWidget {
+  const AdminStatsTab({super.key});
+
+  @override
+  State<AdminStatsTab> createState() => _AdminStatsTabState();
+}
+
+class _AdminStatsTabState extends State<AdminStatsTab> with AutomaticKeepAliveClientMixin {
+  Map<String, dynamic> _stats = {};
+  bool _isLoading = true;
+  StreamSubscription<Map<String, dynamic>>? _presenceSub;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+    // Real-time: khi có người online/offline -> tải lại thống kê (im lặng)
+    _presenceSub = SocketService.instance.onPresence.listen((_) {
+      if (mounted) _loadStats(silent: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _presenceSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadStats({bool silent = false}) async {
+    if (!silent) setState(() => _isLoading = true);
+    try {
+      _stats = await ApiService.adminGetStats();
+    } catch (e) {
+      debugPrint('Lỗi tải thống kê: $e');
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return RefreshIndicator(
+      onRefresh: _loadStats,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // 3 chỉ số người dùng trên một hàng gọn
+          Row(
+            children: [
+              Expanded(child: _miniStat('Người dùng', _stats['total_users'], Icons.people, AppColors.primary)),
+              const SizedBox(width: 10),
+              Expanded(child: _miniStat('Online', _stats['online_users'], Icons.circle, AppColors.success)),
+              const SizedBox(width: 10),
+              Expanded(child: _miniStat('Bị khóa', _stats['locked_users'], Icons.lock, AppColors.error)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Nhóm chỉ số hoạt động dạng danh sách hàng - rộng vừa nội dung
+          Center(
+            child: IntrinsicWidth(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _statRow('Cuộc trò chuyện', _stats['total_chats'], Icons.chat_bubble_outline, Colors.teal),
+                    const Divider(height: 1),
+                    _statRow('Nhóm chat', _stats['total_groups'], Icons.groups_2_outlined, Colors.deepPurple),
+                    const Divider(height: 1),
+                    _statRow('Tổng tin nhắn', _stats['total_messages'], Icons.forum_outlined, Colors.orange),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: Text(
+              'Cập nhật lúc ${TimeOfDay.now().format(context)}',
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniStat(String label, dynamic value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 6),
+          Text('${value ?? 0}',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 2),
+          Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+        ],
+      ),
+    );
+  }
+
+  Widget _statRow(String label, dynamic value, IconData icon, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Text(label, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary)),
+          const SizedBox(width: 32),
+          const Spacer(),
+          Text('${value ?? 0}',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+        ],
+      ),
+    );
+  }
+}

@@ -48,8 +48,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _doLogin(String email, String password) async {
-    final authProvider = context.read<AuthProvider>();
-    final success = await authProvider.login(email, password);
+    final authNotifier = context.read<AuthProvider>();
+    final success = await authNotifier.login(email, password);
 
     if (!mounted) return;
 
@@ -57,14 +57,15 @@ class _LoginScreenState extends State<LoginScreen> {
       await AccountManager.saveAccount(
         email: email,
         password: password,
-        displayName: authProvider.displayName ?? email.split('@')[0],
+        displayName: authNotifier.displayName ?? email.split('@')[0],
       );
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, AppRoutes.chatList);
+      final route = authNotifier.isAdmin ? AppRoutes.adminDashboard : AppRoutes.chatList;
+      Navigator.pushReplacementNamed(context, route);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Đăng nhập thất bại'),
+          content: Text(authNotifier.errorMessage ?? 'Đăng nhập thất bại'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -83,10 +84,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = context.watch<AuthProvider>();
+    final authNotifier = context.watch<AuthProvider>();
 
     return LoadingOverlay(
-      isLoading: authProvider.isLoading,
+      isLoading: authNotifier.isLoading,
       message: 'Đang đăng nhập...',
       child: Scaffold(
       body: SafeArea(
@@ -178,7 +179,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         icon: const Icon(Icons.close, size: 18, color: AppColors.textSecondary),
                         onPressed: () => _removeAccount(account),
                       ),
-                      onTap: authProvider.isLoading ? null : () => _quickLogin(account),
+                      onTap: authNotifier.isLoading ? null : () => _quickLogin(account),
                     ),
                   ))),
                   const Divider(height: 24),
@@ -187,6 +188,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 if (_savedAccounts.isEmpty) const SizedBox(height: 40),
 
                 TextFormField(
+                  key: const Key('email_field'),
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
@@ -205,6 +207,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
+                  key: const Key('password_field'),
                   controller: _passwordController,
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
@@ -238,8 +241,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton(
-                  onPressed: authProvider.isLoading ? null : _handleLogin,
-                  child: authProvider.isLoading
+                  key: const Key('login_button'),
+                  onPressed: authNotifier.isLoading ? null : _handleLogin,
+                  child: authNotifier.isLoading
                       ? const SizedBox(
                           width: 20,
                           height: 20,

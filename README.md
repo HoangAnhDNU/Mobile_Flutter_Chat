@@ -1,260 +1,435 @@
 # Mobile Flutter Chat
 
-Ứng dụng chat realtime xây dựng bằng Flutter + Node.js + MySQL.
+Ứng dụng chat realtime xây dựng bằng Flutter (Clean Architecture) + Python FastAPI + MySQL.
 
-## Tính năng
+## ✨ Tính năng
 
-- Đăng nhập / Đăng ký
-- Chat 1-1 và nhóm (text, ảnh)
-- WebSocket real-time messaging
-- Delivery & read receipts (✓ / ✓✓ / ✓✓ xanh)
-- Reply / Quote messages
-- Emoji reactions
-- Tìm kiếm tin nhắn
-- Pin / Delete for me / Delete for everyone
-- Mute / Archive chats
-- Block / Unblock users
-- Link preview
-- Dark mode / Light mode
+- 🔐 Đăng nhập / Đăng ký với JWT
+- 💬 Chat 1-1 và nhóm (text, ảnh)
+- ⚡ WebSocket real-time messaging
+- ✓✓ Delivery & read receipts
+- 💭 Reply / Quote messages
+- 😊 Emoji reactions
+- 🔍 Tìm kiếm tin nhắn
+- 📌 Pin / Delete for me / Delete for everyone
+- 🔕 Mute / Archive chats
+- 🚫 Block / Unblock users
+- 🔗 Link preview
+- 🌙 Dark mode / Light mode
 
-## Công nghệ sử dụng
+## 🛠️ Công nghệ sử dụng
 
 | Thành phần | Công nghệ |
 |-----------|-----------|
-| Frontend | Flutter 3.x, Dart, Provider (state management) |
-| Backend | Node.js, Express.js, Socket.IO |
-| Database | MySQL 8.0 |
-| Auth | JWT (JSON Web Token) |
-| Realtime | WebSocket (web_socket_channel) |
+| **Frontend** | Flutter 3.12+, Dart |
+| **Architecture** | Clean Architecture (Domain/Data/Presentation) |
+| **State Management** | Provider + ChangeNotifier |
+| **Dependency Injection** | GetIt |
+| **Backend** | Python 3.10, FastAPI, Socket.IO |
+| **Database** | MySQL 8.0 với SQLAlchemy (async) |
+| **Auth** | JWT (JSON Web Token) |
+| **Realtime** | WebSocket (python-socketio) |
 
-## Yêu cầu hệ thống
+## 📋 Yêu cầu hệ thống
 
-- **Flutter SDK** >= 3.0
-- **Node.js** >= 18.x
+- **Flutter SDK** >= 3.12.0 (đã cài tại `C:\ThanhTung\flutter\bin`)
+- **Anaconda/Miniconda** (để quản lý môi trường Python)
+- **Python** >= 3.10 (cài tự động qua Conda)
 - **MySQL** >= 8.0
-- **Android Studio** hoặc VS Code với Flutter extension
-- **Thiết bị Android** (thật hoặc emulator)
+- **Chrome** (để chạy Flutter web)
 
 ---
 
-## Hướng dẫn cài đặt và chạy
+## 🚀 Hướng dẫn cài đặt và chạy
 
-### Bước 1: Clone dự án
+### ⚡ Cách nhanh nhất (Quick Start)
 
+**Lần đầu tiên:**
 ```bash
-git clone <repo_url>
-cd mobile_flutter_chat
+# 1. Chạy setup tự động
+AppChat_QuickStart.bat
+
+# 2. Mở file backend_python\.env và cập nhật:
+#    - DB_PASSWORD=your_mysql_password
+#    - JWT_SECRET_KEY=random_secret_key
+
+# 3. Chạy dự án
+AppChat_RunProject.bat
 ```
 
-### Bước 2: Cài đặt Backend
+### 📝 Cách chi tiết từng bước
 
-```bash
-cd backend
-npm install
-```
+#### Lần đầu tiên:
 
-### Bước 3: Cấu hình file `.env`
-
-```bash
-cp template.env .env
-```
-
-Mở `backend/.env` và sửa thông tin MySQL:
-
-```env
-PORT=3000
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=your_mysql_password    # ← Đổi thành mật khẩu MySQL của bạn
-DB_NAME=mobile_flutter_chat
-JWT_SECRET=any_random_string_here  # ← Đặt chuỗi bất kỳ
-```
-
-### Bước 4: Tạo Database
-
-Mở **MySQL Workbench** (hoặc terminal MySQL), chạy lần lượt 2 file SQL:
-
-```sql
--- File 1: Tạo database + bảng cơ bản
-source C:/đường_dẫn_đến_project/backend/database/schema.sql;
-
--- File 2: Thêm các cột mới (reactions, pin, reply, v.v.)
-source C:/đường_dẫn_đến_project/backend/database/migration_v2.sql;
-```
-
-Hoặc dùng menu **File → Open SQL Script** trong MySQL Workbench, chọn từng file và nhấn Execute (⚡).
-
-### Bước 5: Chạy Backend
-
-```bash
-cd backend
-npm run dev
-```
-
-Nếu thành công sẽ thấy:
-```
-Server running on port 3000
-WebSocket ready on port 3000
-```
-
-### Bước 6: Cấu hình IP cho Flutter
-
-Mở file `lib/core/constants/app_config.dart` và đổi `serverHost`:
-
-```dart
-class AppConfig {
-  // Thiết bị thật: dùng IP LAN của máy chạy backend
-  // Emulator: dùng '10.0.2.2'
-  static const String serverHost = '192.168.x.x'; // ← Đổi thành IP máy bạn
-  static const int serverPort = 3000;
-}
-```
-
-**Cách tìm IP LAN:**
-- Windows: chạy `ipconfig` → lấy IPv4 Address (thường là 192.168.x.x)
-- Mac: chạy `ifconfig | grep inet`
-
-### Bước 7: Chạy Flutter
-
+**Bước 1: Cài đặt Flutter dependencies**
 ```bash
 flutter pub get
-flutter run
 ```
 
-### Ghi chú quan trọng
+**Bước 2: Cài đặt Python Backend**
+```bash
+AppChat_SetupPython.bat
+```
 
-- **Backend phải chạy trước Flutter** — app cần API server để hoạt động.
-- Nếu dùng **emulator**, đổi `serverHost` thành `'10.0.2.2'`.
-- Nếu dùng **thiết bị thật**, điện thoại và máy tính phải **cùng mạng WiFi**.
-- Khi đổi mạng WiFi, cần cập nhật lại IP trong `app_config.dart`.
+**Bước 3: Cấu hình file `.env`**
+
+Mở `backend_python\.env` và cập nhật:
+
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_mysql_password    # ← Đổi thành mật khẩu MySQL của bạn
+DB_NAME=mobile_chat
+
+JWT_SECRET_KEY=your-super-secret-key-change-in-production  # ← Đặt chuỗi bất kỳ
+SERVER_HOST=0.0.0.0
+SERVER_PORT=3000
+```
+
+**Bước 4: Chạy dự án**
+```bash
+AppChat_RunProject.bat
+```
+
+File này sẽ tự động:
+- ✅ Kích hoạt conda environment "AppChat"
+- ✅ Cài đặt/cập nhật thư viện Python
+- ✅ Khởi động Backend tại http://localhost:3000
+- ✅ Tạo database MySQL (nếu chưa có)
+- ✅ Khởi động Flutter App trên Chrome
+
+#### Chạy hàng ngày:
+
+```bash
+# Chỉ cần chạy 1 file duy nhất
+AppChat_RunProject.bat
+```
 
 ---
 
-## Cấu trúc dự án
+## 📁 Cấu trúc dự án
+
+### Flutter (Clean Architecture)
 
 ```
-mobile_flutter_chat/
-├── backend/                    # Backend Node.js
-│   ├── config/
-│   │   └── database.js         # Kết nối MySQL pool
-│   ├── database/
-│   │   ├── schema.sql          # Schema tạo bảng ban đầu
-│   │   └── migration_v2.sql    # Migration thêm tính năng mới
-│   ├── models/
-│   │   ├── User.js             # Model user (CRUD, online status)
-│   │   ├── Chat.js             # Model chat (tạo, tìm, participants)
-│   │   └── Message.js          # Model message (gửi, sửa, xóa)
-│   ├── routes/
-│   │   ├── auth.js             # API đăng ký, đăng nhập, logout
-│   │   ├── chat.js             # API chat, tin nhắn, reactions, pin
-│   │   └── user.js             # API user, block, online status
-│   ├── server.js               # Entry point + Socket.IO setup
-│   ├── template.env            # Mẫu file .env
-│   └── package.json            # Dependencies
+lib/
+├── core/                        # Core utilities
+│   ├── error/                   # Failures & Exceptions
+│   │   ├── failures.dart        # ServerFailure, NetworkFailure, etc.
+│   │   └── exceptions.dart      # ServerException, CacheException, etc.
+│   ├── network/
+│   │   └── network_info.dart    # Kiểm tra kết nối mạng
+│   ├── usecases/
+│   │   └── usecase.dart         # Abstract UseCase class
+│   ├── constants/
+│   │   ├── app_config.dart      # ⚠️ CẤU HÌNH SERVER TẠI ĐÂY
+│   │   ├── app_colors.dart      # Bảng màu ứng dụng
+│   │   └── app_routes.dart      # Định nghĩa routes
+│   ├── services/
+│   │   ├── api_service.dart     # HTTP client
+│   │   └── socket_service.dart  # WebSocket client
+│   └── themes/                  # Light/Dark theme
 │
-├── lib/                        # Frontend Flutter
-│   ├── main.dart               # Entry point app
-│   ├── core/
-│   │   ├── constants/
-│   │   │   ├── app_config.dart # ⚠️ CẤU HÌNH IP SERVER TẠI ĐÂY
-│   │   │   ├── app_colors.dart # Bảng màu ứng dụng
-│   │   │   └── app_routes.dart # Định nghĩa route names
-│   │   ├── services/
-│   │   │   ├── api_service.dart    # Tất cả HTTP calls đến backend
-│   │   │   └── socket_service.dart # WebSocket client
-│   │   └── themes/             # Light/Dark theme
-│   ├── features/
-│   │   ├── auth/
-│   │   │   ├── providers/
-│   │   │   │   └── auth_provider.dart  # State quản lý auth
-│   │   │   └── screens/
-│   │   │       ├── splash_screen.dart  # Màn hình chờ + check auth
-│   │   │       ├── login_screen.dart   # Đăng nhập
-│   │   │       └── register_screen.dart # Đăng ký
-│   │   ├── chat/
-│   │   │   ├── screens/
-│   │   │   │   ├── chat_list_screen.dart    # DS chat + tab People
-│   │   │   │   ├── chat_detail_screen.dart  # Màn hình chat chính
-│   │   │   │   ├── create_chat_screen.dart  # Tạo chat/nhóm mới
-│   │   │   │   └── group_settings_screen.dart # Cài đặt nhóm
-│   │   │   └── widgets/
-│   │   │       └── message_bubble.dart # Widget hiển thị tin nhắn
-│   │   └── profile/
-│   │       └── screens/
-│   │           └── profile_screen.dart # Trang cá nhân
-│   └── widgets/                # Widgets dùng chung
+├── features/
+│   ├── auth/
+│   │   ├── domain/              # Business Logic Layer
+│   │   │   ├── entities/        # UserEntity
+│   │   │   ├── repositories/    # AuthRepository interface
+│   │   │   └── usecases/        # LoginUseCase, RegisterUseCase, etc.
+│   │   ├── data/                # Data Layer
+│   │   │   ├── models/          # UserModel (JSON serialization)
+│   │   │   ├── datasources/     # Remote & Local data sources
+│   │   │   └── repositories/    # AuthRepositoryImpl
+│   │   ├── presentation/        # Presentation Layer
+│   │   │   ├── providers/       # AuthNotifier (ChangeNotifier)
+│   │   │   ├── screens/         # Login, Register, Splash
+│   │   │   └── widgets/         # Auth-specific widgets
+│   │
+│   ├── chat/
+│   │   ├── domain/
+│   │   │   ├── entities/        # ChatEntity, MessageEntity
+│   │   │   ├── repositories/    # ChatRepository, MessageRepository
+│   │   │   └── usecases/        # GetChatsUseCase, SendMessageUseCase
+│   │   ├── data/
+│   │   │   ├── models/          # ChatModel, MessageModel
+│   │   │   ├── datasources/     # Chat remote data source
+│   │   │   └── repositories/    # Repository implementations
+│   │   └── presentation/
+│   │       ├── providers/       # ChatNotifier, MessageNotifier
+│   │       ├── screens/         # ChatList, ChatDetail, CreateChat
+│   │       └── widgets/         # MessageBubble, ChatTile, etc.
+│   │
+│   └── profile/
+│       └── screens/             # ProfileScreen
 │
-├── android/                    # Android config
-└── ios/                        # iOS config
+├── widgets/                     # Shared widgets
+│   └── loading_overlay.dart
+│
+├── injection_container.dart     # Dependency Injection (GetIt)
+└── main.dart                    # Entry point
+```
+
+### Python Backend (FastAPI)
+
+```
+backend_python/
+├── app/
+│   ├── __init__.py
+│   ├── config.py                # Configuration (database, JWT, server)
+│   ├── database.py              # SQLAlchemy async setup
+│   ├── dependencies.py          # FastAPI dependencies (get_current_user)
+│   ├── main.py                  # FastAPI app + Socket.IO
+│   │
+│   ├── models/                  # SQLAlchemy ORM Models
+│   │   ├── __init__.py
+│   │   ├── user.py              # User model
+│   │   ├── chat.py              # Chat, ChatParticipant models
+│   │   └── message.py           # Message, Reaction, ReadStatus models
+│   │
+│   ├── schemas/                 # Pydantic Schemas (Request/Response)
+│   │   ├── __init__.py
+│   │   ├── auth.py              # LoginRequest, RegisterRequest, AuthResponse
+│   │   ├── user.py              # UserResponse, UpdateProfileRequest
+│   │   ├── chat.py              # CreateChatRequest, ChatResponse
+│   │   └── message.py           # SendMessageRequest, MessageResponse
+│   │
+│   ├── services/                # Business Logic
+│   │   ├── __init__.py
+│   │   ├── auth_service.py      # Register, login, JWT
+│   │   ├── chat_service.py      # CRUD chats, participants
+│   │   └── message_service.py   # CRUD messages, reactions
+│   │
+│   └── routes/                  # API Endpoints
+│       ├── __init__.py
+│       ├── auth.py              # /api/auth/* endpoints
+│       ├── user.py              # /api/user/* endpoints
+│       └── chat.py              # /api/chat/* endpoints
+│
+├── requirements.txt             # Python dependencies
+├── run.py                       # Server entry point
+├── .env.example                 # Environment template
+└── README.md
+```
+
+### Database
+
+```
+database/
+├── TaoCoSoDuLieu.sql           # Schema đầy đủ (users, chats, messages, etc.)
+└── ThemDuLieuMau.sql           # Dữ liệu mẫu
 ```
 
 ---
 
-## Giải thích file quan trọng
+## 🔌 API Endpoints
 
-### Backend
-
-| File | Chức năng |
-|------|-----------|
-| `server.js` | Khởi tạo Express server, middleware, Socket.IO event handlers (typing, online status, message delivery) |
-| `config/database.js` | Tạo MySQL connection pool, đọc .env |
-| `routes/auth.js` | `POST /register` (tạo user + hash password + trả JWT), `POST /login`, `POST /logout` |
-| `routes/chat.js` | CRUD chat, gửi/sửa/xóa tin nhắn, reactions, pin, search, mute, read receipts |
-| `routes/user.js` | Lấy danh sách user, cập nhật profile, online status, block/unblock |
-| `models/User.js` | Query MySQL cho bảng `users` |
-| `models/Chat.js` | Query cho bảng `chats` + `chat_participants` |
-| `models/Message.js` | Query cho bảng `messages` |
-| `database/schema.sql` | Tạo 4 bảng: `users`, `chats`, `chat_participants`, `messages` |
-| `database/migration_v2.sql` | Thêm: `message_reactions`, `message_read_status`, `blocked_users`, `muted_chats`, `deleted_messages` + các cột mới |
-
-### Flutter
-
-| File | Chức năng |
-|------|-----------|
-| `app_config.dart` | **⚠️ Quan trọng nhất** — cấu hình IP + port server. Mỗi người phải đổi IP theo máy mình |
-| `api_service.dart` | Tất cả HTTP calls (register, login, getChats, sendMessage, reactions, pin, v.v.). Có timeout 10s |
-| `socket_service.dart` | WebSocket client — nhận tin nhắn real-time, typing indicator, online status |
-| `auth_provider.dart` | State management cho auth (login/register/logout), lưu token vào SharedPreferences |
-| `chat_list_screen.dart` | Màn hình chính: Tab Chats (danh sách cuộc trò chuyện) + Tab People (danh sách user online) |
-| `chat_detail_screen.dart` | Màn hình chat: gửi/nhận tin nhắn, reply, emoji, pin, search, mute, xóa |
-| `message_bubble.dart` | Widget tin nhắn: hiển thị text/ảnh, reactions, reply preview, delivery status, pin indicator |
-| `create_chat_screen.dart` | Tạo chat mới: chọn user chat 1-1 hoặc tạo nhóm |
-| `group_settings_screen.dart` | Quản lý nhóm: đổi tên, avatar, thêm/xóa thành viên |
-
----
-
-## API Endpoints chính
-
-### Auth
-- `POST /api/auth/register` — Đăng ký (email, password, displayName)
-- `POST /api/auth/login` — Đăng nhập
+### Authentication
+- `POST /api/auth/register` — Đăng ký tài khoản mới
+- `POST /api/auth/login` — Đăng nhập và nhận JWT token
 - `POST /api/auth/logout` — Đăng xuất
-
-### Chat
-- `GET /api/chat?uid=` — Lấy danh sách chat
-- `POST /api/chat` — Tạo chat mới
-- `GET /api/chat/:id/messages` — Lấy tin nhắn (kèm reactions)
-- `POST /api/chat/:id/messages` — Gửi tin nhắn
-- `POST /api/chat/:id/messages/reply` — Gửi tin trả lời
-
-### Message Actions
-- `PUT /api/chat/messages/:id/pin` — Ghim/bỏ ghim
-- `POST /api/chat/messages/:id/reactions` — Thêm reaction
-- `POST /api/chat/messages/:id/delete-for-me` — Xóa cho mình
-- `POST /api/chat/messages/:id/delete-for-everyone` — Xóa cho tất cả
+- `GET /api/auth/me` — Lấy thông tin user hiện tại
 
 ### User
-- `GET /api/user?uid=` — Danh sách users
-- `POST /api/user/:uid/block` — Block user
+- `GET /api/user/me` — Thông tin profile
+- `PUT /api/user/me` — Cập nhật profile
+- `GET /api/user/search?q=keyword` — Tìm kiếm users
+- `GET /api/user/{user_id}` — Lấy thông tin một user
+
+### Chat
+- `GET /api/chat` — Danh sách chats (phân trang)
+- `GET /api/chat/{chat_id}` — Chi tiết một chat
+- `POST /api/chat/direct` — Tạo chat 1-1
+- `POST /api/chat/group` — Tạo nhóm chat
+- `POST /api/chat/{chat_id}/participants` — Thêm thành viên
+- `DELETE /api/chat/{chat_id}/participants/{user_id}` — Xóa thành viên
+- `POST /api/chat/{chat_id}/leave` — Rời khỏi nhóm
+- `POST /api/chat/{chat_id}/pin` — Ghim/bỏ ghim chat
+- `POST /api/chat/{chat_id}/mute` — Tắt/bật thông báo
+
+### Messages
+- `GET /api/chat/{chat_id}/messages` — Danh sách tin nhắn (phân trang)
+- `POST /api/chat/{chat_id}/messages` — Gửi tin nhắn
+- `PUT /api/chat/messages/{message_id}` — Sửa tin nhắn
+- `DELETE /api/chat/messages/{message_id}` — Xóa tin nhắn
+- `POST /api/chat/messages/{message_id}/reactions` — Thêm reaction
+- `DELETE /api/chat/messages/reactions/{reaction_id}` — Xóa reaction
+- `POST /api/chat/{chat_id}/read` — Đánh dấu đã đọc
 
 ---
 
-## Troubleshooting
+## 🔄 WebSocket Events
 
-| Vấn đề | Giải pháp |
-|--------|-----------|
-| `Connection refused` / Timeout | Kiểm tra backend đang chạy, IP trong `app_config.dart` đúng, cùng WiFi |
-| `Access denied` MySQL | Kiểm tra `DB_PASSWORD` trong `.env` khớp với mật khẩu MySQL |
-| App kẹt ở đăng ký/đăng nhập | Backend không phản hồi — kiểm tra terminal backend có lỗi không |
-| Tin nhắn không hiện | Restart backend (`rs` + Enter trong terminal), restart Flutter app |
-| `CLEARTEXT communication not permitted` | Đã fix trong AndroidManifest.xml — nếu lỗi, kiểm tra `usesCleartextTraffic="true"` |
+### Client → Server
+- `connect` — Kết nối với token
+- `join_chat` — Tham gia phòng chat
+- `leave_chat` — Rời phòng chat
+- `new_message` — Gửi tin nhắn mới
+- `typing` — Trạng thái đang nhập
+- `message_read` — Đánh dấu đã đọc
+
+### Server → Client
+- `new_message` — Tin nhắn mới
+- `typing` — Ai đó đang nhập
+- `message_read` — Ai đó đã đọc
+- `user_online` — User online
+- `user_offline` — User offline
+
+---
+
+## 📚 Tài liệu liên quan
+
+- [HUONG_DAN_CHAY_DU_AN.md](HUONG_DAN_CHAY_DU_AN.md) — Hướng dẫn chi tiết
+- [docs/ChucNang.md](docs/ChucNang.md) — Danh sách chức năng
+- [docs/CheckList.md](docs/CheckList.md) — Checklist phát triển
+- [docs/ChiTietManHinh.md](docs/ChiTietManHinh.md) — Chi tiết các màn hình
+
+---
+
+## 🧪 Kiểm tra Backend
+
+Sau khi chạy backend, mở trình duyệt:
+
+- **API Root**: http://localhost:3000
+- **Health Check**: http://localhost:3000/health
+- **Swagger UI**: http://localhost:3000/docs (Test API trực tiếp)
+- **ReDoc**: http://localhost:3000/redoc (Documentation)
+
+---
+
+## 🛠️ Các lệnh hữu ích
+
+### Flutter
+```bash
+# Cài đặt dependencies
+flutter pub get
+
+# Chạy app
+flutter run -d chrome
+
+# Build APK
+flutter build apk
+
+# Clean project
+flutter clean
+```
+
+### Python Backend
+```bash
+# Kích hoạt conda environment
+conda activate AppChat
+
+# Chạy server
+cd backend_python
+python run.py
+
+# Cài đặt dependencies mới
+pip install package_name
+pip freeze > requirements.txt
+```
+
+### Database
+```bash
+# Kết nối MySQL
+mysql -u root -p
+
+# Import database
+mysql -u root -p < database\TaoCoSoDuLieu.sql
+mysql -u root -p < database\ThemDuLieuMau.sql
+
+# Backup database
+mysqldump -u root -p mobile_chat > backup.sql
+```
+
+---
+
+## 🎯 Clean Architecture Benefits
+
+**Separation of Concerns**: Mỗi layer có trách nhiệm riêng
+- **Domain**: Business logic thuần túy, không phụ thuộc framework
+- **Data**: Xử lý dữ liệu từ API, database, cache
+- **Presentation**: UI và state management
+
+**Testability**: Dễ dàng unit test từng layer độc lập
+
+**Maintainability**: Dễ bảo trì, mở rộng, thay đổi implementation
+
+**Dependency Rule**: Dependencies chỉ đi từ ngoài vào trong (Presentation → Data → Domain)
+
+---
+
+## ⚠️ Troubleshooting
+
+### Lỗi Conda
+```bash
+# Nếu conda không được nhận diện
+# Sử dụng Anaconda Prompt thay vì CMD thông thường
+```
+
+### Lỗi kết nối Backend
+1. Kiểm tra Backend đang chạy tại http://localhost:3000
+2. Kiểm tra file `backend_python\.env` đã cấu hình đúng
+3. Kiểm tra MySQL đang chạy
+4. Xem logs trong terminal Backend để biết lỗi cụ thể
+
+### Lỗi Flutter không kết nối được API
+1. Kiểm tra `lib/core/constants/app_config.dart`
+2. Nếu chạy trên Chrome: dùng `localhost` hoặc `127.0.0.1`
+3. Nếu chạy trên thiết bị: dùng IP LAN của máy tính (xem bằng `ipconfig`)
+4. Nếu chạy trên emulator: dùng `10.0.2.2`
+
+### Database errors
+```bash
+# Tạo lại database từ đầu
+mysql -u root -p
+DROP DATABASE IF EXISTS mobile_chat;
+exit
+
+# Chạy lại scripts
+mysql -u root -p < database\TaoCoSoDuLieu.sql
+mysql -u root -p < database\ThemDuLieuMau.sql
+```
+
+### Port 3000 đã được sử dụng
+```bash
+# Tìm process đang dùng port 3000
+netstat -ano | findstr :3000
+
+# Kill process (thay PID bằng số từ lệnh trên)
+taskkill /PID <PID> /F
+
+# Hoặc thay đổi SERVER_PORT trong .env
+```
+
+---
+
+## 📝 Ghi chú quan trọng
+
+- **Backend phải chạy trước Flutter** — app cần API server để hoạt động
+- **MySQL phải đang chạy** — Backend không thể khởi động nếu không kết nối được database
+- **Conda environment "AppChat"** — Luôn kích hoạt trước khi chạy Python code
+- **File .bat tự động hóa** — Sử dụng `AppChat_RunProject.bat` để khởi động tất cả
+
+---
+
+## 👥 Tác giả
+
+- **Lưu Thanh Tùng**
+- **Lớp**: KHMT 1701  
+- **MSSV**: 1771040029
+- **Email**: dnu.khmt.1701.1771040029@gmail.com
+
+---
+
+## 📄 License
+
+Dự án này được phát triển cho mục đích học tập.
+
+---
+
+## 🙏 Acknowledgments
+
+- Flutter Team - Framework tuyệt vời
+- FastAPI Team - Python web framework hiện đại
+- Clean Architecture - Robert C. Martin
+- Anaconda - Python environment management

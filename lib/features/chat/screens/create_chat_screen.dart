@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_config.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -252,7 +253,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
           leading: CircleAvatar(
             radius: 24,
             backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-            backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+            backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(AppConfig.resolveMediaUrl(avatarUrl)) : null,
             child: avatarUrl.isEmpty
                 ? Text(
                     displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
