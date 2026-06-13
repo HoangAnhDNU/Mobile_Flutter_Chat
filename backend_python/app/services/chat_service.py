@@ -108,13 +108,16 @@ class ChatService:
                     ChatParticipant.user_id.in_([user_id, target_user_id])
                 )
             )
+            .options(
+                selectinload(Chat.participants).selectinload(ChatParticipant.user)
+            )
             .group_by(Chat.id)
             .having(func.count(ChatParticipant.id) == 2)
         )
-        
+
         existing_result = await db.execute(existing_query)
         existing_chat = existing_result.scalar_one_or_none()
-        
+
         if existing_chat:
             return existing_chat
         
@@ -122,15 +125,20 @@ class ChatService:
         chat = Chat(is_group=False)
         db.add(chat)
         await db.flush()
-        
+
         # Thêm participants
         for uid in [user_id, target_user_id]:
             participant = ChatParticipant(chat_id=chat.id, user_id=uid)
             db.add(participant)
-        
+
         await db.commit()
-        await db.refresh(chat)
-        
+        await db.refresh(chat, attribute_names=['participants'])
+
+        # Eager load participants and their users for the new chat
+        await db.refresh(chat, attribute_names=['participants'])
+        for p in chat.participants:
+            await db.refresh(p, attribute_names=['user'])
+
         return chat
     
     @staticmethod

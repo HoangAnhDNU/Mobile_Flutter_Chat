@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -56,6 +57,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() {
       _notificationsEnabled = prefs.getBool('notifications') ?? true;
     });
+  }
+
+  ImageProvider _getAvatarImage(String url) {
+    if (url.startsWith('data:')) {
+      final base64Str = url.split(',').last;
+      return MemoryImage(base64Decode(base64Str));
+    }
+    return NetworkImage(AppConfig.resolveMediaUrl(url));
   }
 
   Future<void> _updateDisplayName() async {
@@ -211,7 +220,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   CircleAvatar(
                     radius: 50,
                     backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                        backgroundImage: _avatarUrl.isNotEmpty ? NetworkImage(AppConfig.resolveMediaUrl(_avatarUrl)) : null,
+                    backgroundImage: _avatarUrl.isNotEmpty ? _getAvatarImage(_avatarUrl) : null,
                     child: _avatarUrl.isEmpty
                         ? const Icon(Icons.person, size: 50, color: AppColors.primary)
                         : null,

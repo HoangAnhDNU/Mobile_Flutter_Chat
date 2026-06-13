@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:file_picker/file_picker.dart';
+// import 'package:file_picker/file_picker.dart';  // Temporarily disabled
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -51,6 +51,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   late int _chatId;
   late String _chatName;
   String? _chatAvatar;
+  ImageProvider? _cachedAvatarProvider;
   bool _initialized = false;
   bool _isMuted = false;
   bool _isPeerTyping = false;
@@ -92,6 +93,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       _chatId = args?['chatId'] ?? 0;
       _chatName = args?['chatName'] ?? 'Chat';
       _chatAvatar = args?['chatAvatar'];
+      if (_chatAvatar != null && _chatAvatar!.isNotEmpty) {
+        _cachedAvatarProvider = _getImageProvider(_chatAvatar!);
+      }
       _connectRealtime();
       _loadMessages();
       _loadPinned();
@@ -393,6 +397,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     setState(() => _showMoreActions = !_showMoreActions);
   }
 
+  // Temporarily disabled due to file_picker dependency conflict
+  /*
   Future<void> _sendVoiceMessage() async {
     final authProvider = context.read<AuthProvider>();
     if (authProvider.uid == null) return;
@@ -450,6 +456,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       );
     }
   }
+  */
 
   Future<void> _updateMessage() async {
     final text = _messageController.text.trim();
@@ -753,10 +760,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
             CircleAvatar(
               radius: 16,
               backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-              backgroundImage: (_chatAvatar != null && _chatAvatar!.isNotEmpty)
-                  ? _getImageProvider(_chatAvatar!)
-                  : null,
-              child: (_chatAvatar == null || _chatAvatar!.isEmpty)
+              backgroundImage: _cachedAvatarProvider,
+              child: (_cachedAvatarProvider == null)
                   ? Text(
                       _chatName.isNotEmpty ? _chatName[0].toUpperCase() : '?',
                       style: const TextStyle(color: AppColors.primary, fontSize: 14, fontWeight: FontWeight.bold),
@@ -969,6 +974,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           reactions: reactions,
           isPinned: msg['is_pinned'] == true || msg['is_pinned'] == 1,
           isDeleted: msg['is_deleted'] == true || msg['is_deleted'] == 1,
+          imageLabel: msg['image_label'],
           onLongPress: () => _showMessageOptions(msg),
           onSwipeReply: () => _setReply(msg),
         );
@@ -1044,11 +1050,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                         icon: const Icon(Icons.photo_camera_outlined, size: 18),
                         label: const Text('Chụp ảnh'),
                       ),
+                      // Temporarily disabled due to file_picker dependency conflict
+                      /*
                       FilledButton.tonalIcon(
                         onPressed: _isEditing ? _cancelEditing : _sendVoiceMessage,
                         icon: const Icon(Icons.mic_none, size: 18),
                         label: const Text('Voice'),
                       ),
+                      */
                     ],
                   ),
                 ),

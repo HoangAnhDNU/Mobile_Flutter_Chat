@@ -5,7 +5,7 @@ from sqlalchemy import select, and_, desc, func
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
-from ..models.message import Message, MessageReaction, MessageReadStatus
+from ..models.message import Message, MessageReaction, MessageReadStatus, DeletedMessage
 from ..models.chat import ChatParticipant, Chat
 from ..models.user import User
 
@@ -38,10 +38,21 @@ class MessageService:
             )
         
         offset = (page - 1) * limit
-        
+
+        # Subquery để lấy message_id đã bị xóa bởi user này
+        deleted_subquery = (
+            select(DeletedMessage.message_id)
+            .where(DeletedMessage.user_id == user_id)
+        )
+
         query = (
             select(Message)
-            .where(Message.chat_id == chat_id)
+            .where(
+                and_(
+                    Message.chat_id == chat_id,
+                    ~Message.id.in_(deleted_subquery)  # Loại bỏ tin nhắn đã bị xóa cho user này
+                )
+            )
             .options(
                 selectinload(Message.sender),
                 selectinload(Message.reactions).selectinload(MessageReaction.user)
@@ -91,6 +102,64 @@ class MessageService:
                 detail="Bạn không có quyền gửi tin nhắn"
             )
         
+        # Classify image if type is image and has image data
+        image_label = None
+        if message_type == "image" and media_url:
+            try:
+                from .image_classifier import get_classifier
+                import tempfile
+                import os
+                import base64
+                
+                print(f"[DEBUG] Starting image classification for message_type={message_type}, media_url starts with data:image: {media_url.startswith('data:image')}")
+                classifier = get_classifier()
+                
+                # Handle base64 data (from Flutter)
+                if media_url.startswith('data:image'):
+                    # Extract base64 part
+                    base64_data = media_url.split(',')[1]
+                    image_data = base64.b64decode(base64_data)
+                    print(f"[DEBUG] Decoded base64 image, size: {len(image_data)} bytes")
+                    
+                    # Save to temp file
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                        temp_file.write(image_data)
+                        temp_path = temp_file.name
+                    
+                    try:
+                        print(f"[DEBUG] Running classifier on temp file: {temp_path}")
+                        predictions = classifier.predict(temp_path, top_k=1)
+                        print(f"[DEBUG] Predictions: {predictions}")
+                        if predictions:
+                            predicted_label = list(predictions.keys())[0]
+                            # Only save label if it's one of the 5 allowed labels
+                            allowed_labels = {'classroom', 'computerroom', 'library', 'corridor', 'office'}
+                            if predicted_label in allowed_labels:
+                                image_label = predicted_label
+                                print(f"[DEBUG] Image label accepted: {image_label}")
+                            else:
+                                print(f"[DEBUG] Image label rejected (not in allowed list): {predicted_label}")
+                    finally:
+                        os.unlink(temp_path)
+                else:
+                    # Assume it's a local file path
+                    print(f"[DEBUG] Running classifier on local path: {media_url}")
+                    predictions = classifier.predict(media_url, top_k=1)
+                    print(f"[DEBUG] Predictions: {predictions}")
+                    if predictions:
+                        predicted_label = list(predictions.keys())[0]
+                        # Only save label if it's one of the 5 allowed labels
+                        allowed_labels = {'classroom', 'computerroom', 'library', 'corridor', 'office'}
+                        if predicted_label in allowed_labels:
+                            image_label = predicted_label
+                            print(f"[DEBUG] Image label accepted: {image_label}")
+                        else:
+                            print(f"[DEBUG] Image label rejected (not in allowed list): {predicted_label}")
+            except Exception as e:
+                print(f"[ERROR] Image classification failed: {e}")
+                import traceback
+                traceback.print_exc()
+        
         message = Message(
             chat_id=chat_id,
             sender_id=sender_id,
@@ -98,6 +167,7 @@ class MessageService:
             type=message_type,
             reply_to_id=reply_to_id,
             media_url=media_url,
+            image_label=image_label,
         )
         db.add(message)
         
@@ -193,12 +263,12 @@ class MessageService:
                     detail="Bạn không có quyền xóa tin nhắn này cho mọi người"
                 )
             message.is_deleted = True
-            message.content = "Tin nhắn đã bị xóa"
             message.is_pinned = False
         else:
             # Soft delete for this user only - thêm vào bảng deleted_messages
-            pass
-        
+            deleted_msg = DeletedMessage(message_id=message_id, user_id=user_id)
+            db.add(deleted_msg)
+
         await db.commit()
         return chat_id
 

@@ -117,19 +117,30 @@ class _FriendsScreenState extends State<FriendsScreen> {
   Future<void> _startChat(Map<String, dynamic> friend) async {
     final auth = context.read<AuthProvider>();
     if (auth.uid == null) return;
-    final res = await ApiService.createChat(
-      participants: [auth.uid!, friend['id'].toString()],
-      createdBy: auth.uid!,
-    );
-    if (!mounted) return;
-    final chatId = res['chatId'];
-    if (chatId != null && chatId != 0) {
-      Navigator.pushNamed(context, AppRoutes.chatDetail, arguments: {
-        'chatId': chatId,
-        'chatName': friend['display_name'],
-        'chatAvatar': friend['avatar_url'],
-        'isGroup': false,
-      });
+    try {
+      debugPrint('Starting chat with friend: ${friend['id']}');
+      final res = await ApiService.createChat(
+        participants: [auth.uid!, friend['id'].toString()],
+        createdBy: auth.uid!,
+      );
+      debugPrint('CreateChat response: $res');
+      if (!mounted) return;
+      final chatId = res['chatId'];
+      debugPrint('ChatId: $chatId');
+      if (chatId != null && chatId != 0) {
+        Navigator.pushNamed(context, AppRoutes.chatDetail, arguments: {
+          'chatId': chatId,
+          'chatName': friend['display_name'],
+          'chatAvatar': friend['avatar_url'],
+          'isGroup': false,
+        });
+      } else {
+        _showSnack('Không thể mở cuộc trò chuyện', error: true);
+      }
+    } catch (e) {
+      debugPrint('Error starting chat: $e');
+      if (!mounted) return;
+      _showSnack('Lỗi: $e', error: true);
     }
   }
 
@@ -204,10 +215,27 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   icon: const Icon(Icons.person_remove_outlined, color: AppColors.error),
                   tooltip: 'Hủy kết bạn',
                   onPressed: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Hủy kết bạn'),
+                        content: Text('Bạn có chắc muốn hủy kết bạn với ${f['display_name']}?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Xác nhận', style: TextStyle(color: AppColors.error)),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true) return;
                     final ok = await ApiService.unfriend(f['id'].toString());
                     if (ok) {
                       _showSnack('Đã hủy kết bạn');
                       _loadAll();
+                    } else {
+                      _showSnack('Hủy kết bạn thất bại', error: true);
                     }
                   },
                 ),

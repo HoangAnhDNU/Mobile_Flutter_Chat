@@ -98,10 +98,12 @@ async def init_db():
     from sqlalchemy import text
     migrations = [
         "ALTER TABLE messages ADD COLUMN is_pinned TINYINT(1) NOT NULL DEFAULT 0",
+        "CREATE TABLE IF NOT EXISTS deleted_messages (id INT AUTO_INCREMENT PRIMARY KEY, message_id INT NOT NULL, user_id INT NOT NULL, deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE, FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)",
+        "ALTER TABLE messages ADD COLUMN image_label VARCHAR(50) NULL",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:
             try:
                 await conn.execute(text(stmt))
             except Exception:
-                pass  # Cột đã tồn tại -> bỏ qua
+                pass  # Cột/bảng đã tồn tại -> bỏ qua

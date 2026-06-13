@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     db_host: str = "localhost"
     db_port: int = 3306
     db_user: str = "root"
-    db_password: str = ""
+    db_password: str = "Hintingd67760105"
     db_name: str = "mobile_chat"
     
     # JWT
@@ -39,7 +39,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-
 
 @lru_cache()
 def get_settings() -> Settings:

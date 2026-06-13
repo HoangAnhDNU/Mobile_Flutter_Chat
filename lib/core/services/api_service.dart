@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_config.dart';
@@ -35,7 +36,12 @@ class ApiService {
   /// Decode body với UTF-8 để hiển thị tiếng Việt chính xác.
   static dynamic _decode(http.Response response) {
     if (response.bodyBytes.isEmpty) return {};
-    return jsonDecode(utf8.decode(response.bodyBytes));
+    try {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } catch (e) {
+      debugPrint('Failed to decode response: ${response.body}');
+      return {'error': 'Server error: ${response.statusCode}'};
+    }
   }
 
   static Map<String, String> get _headers => {
@@ -105,6 +111,7 @@ class ApiService {
       'reply_to_sender': null,
       'is_pinned': m['is_pinned'] == true,
       'is_deleted': m['is_deleted'] == true,
+      'image_label': m['image_label'],
       'reactions': (m['reactions'] as List?)
               ?.map((r) => Map<String, dynamic>.from(r as Map))
               .toList() ??
@@ -357,6 +364,9 @@ class ApiService {
         body: jsonEncode({'user_id': others.isNotEmpty ? others.first : ''}),
       );
     }
+
+    debugPrint('createChat response status: ${response.statusCode}');
+    debugPrint('createChat response body: ${response.body}');
 
     final data = _decode(response) as Map<String, dynamic>;
     final chat = data['chat'] as Map?;

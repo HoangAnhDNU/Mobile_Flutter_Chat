@@ -8,7 +8,7 @@ import '../../../core/utils/time_utils.dart';
 import '../../../core/utils/downloader.dart';
 import '../screens/image_viewer_screen.dart';
 
-class MessageBubble extends StatelessWidget {
+class MessageBubble extends StatefulWidget {
   final String text;
   final bool isMe;
   final String senderName;
@@ -27,6 +27,7 @@ class MessageBubble extends StatelessWidget {
   final bool isDeleted;
   final int? voiceDuration;
   final VoidCallback? onSwipeReply;
+  final String? imageLabel;
 
   const MessageBubble({
     super.key,
@@ -48,9 +49,18 @@ class MessageBubble extends StatelessWidget {
     this.isDeleted = false,
     this.voiceDuration,
     this.onSwipeReply,
+    this.imageLabel,
   });
 
-  ImageProvider _getImageProvider(String url) {
+  @override
+  State<MessageBubble> createState() => _MessageBubbleState();
+}
+
+class _MessageBubbleState extends State<MessageBubble> {
+  ImageProvider? _avatarProvider;
+  ImageProvider? _imageProvider;
+
+  static ImageProvider _buildProvider(String url) {
     final resolvedUrl = AppConfig.resolveMediaUrl(url);
     if (resolvedUrl.startsWith('data:image')) {
       final base64Str = resolvedUrl.split(',').last;
@@ -60,7 +70,51 @@ class MessageBubble extends StatelessWidget {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _initProviders();
+  }
+
+  @override
+  void didUpdateWidget(covariant MessageBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.senderAvatar != widget.senderAvatar ||
+        oldWidget.imageBase64 != widget.imageBase64 ||
+        oldWidget.imageUrl != widget.imageUrl) {
+      _initProviders();
+    }
+  }
+
+  void _initProviders() {
+    _avatarProvider = (widget.senderAvatar != null && widget.senderAvatar!.isNotEmpty)
+        ? _buildProvider(widget.senderAvatar!)
+        : null;
+    final imgSrc = (widget.imageBase64 != null && widget.imageBase64!.isNotEmpty)
+        ? widget.imageBase64!
+        : widget.imageUrl;
+    _imageProvider = (imgSrc != null && imgSrc.isNotEmpty) ? _buildProvider(imgSrc) : null;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final text = widget.text;
+    final isMe = widget.isMe;
+    final senderName = widget.senderName;
+    final senderAvatar = widget.senderAvatar;
+    final timestamp = widget.timestamp;
+    final isEdited = widget.isEdited;
+    final imageUrl = widget.imageUrl;
+    final imageBase64 = widget.imageBase64;
+    final type = widget.type;
+    final onLongPress = widget.onLongPress;
+    final deliveryStatus = widget.deliveryStatus;
+    final replyToText = widget.replyToText;
+    final replyToSender = widget.replyToSender;
+    final reactions = widget.reactions;
+    final isPinned = widget.isPinned;
+    final isDeleted = widget.isDeleted;
+    final voiceDuration = widget.voiceDuration;
+    final onSwipeReply = widget.onSwipeReply;
     Widget bubbleContent = Column(
       crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
@@ -130,41 +184,58 @@ class MessageBubble extends StatelessWidget {
                 ),
               if (isDeleted)
                 Row(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.block, size: 15, color: isMe ? Colors.white70 : AppColors.textSecondary),
                     const SizedBox(width: 6),
-                    Text(
-                      'Tin nhắn đã được thu hồi',
-                      style: TextStyle(
-                        color: isMe ? Colors.white70 : AppColors.textSecondary,
-                        fontStyle: FontStyle.italic,
-                        fontSize: 14,
+                    Flexible(
+                      child: Text(
+                        'Tin nhắn đã được thu hồi',
+                        style: TextStyle(
+                          color: isMe ? Colors.white70 : AppColors.textSecondary,
+                          fontStyle: FontStyle.italic,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                   ],
                 )
               else if (type == 'image' && (imageBase64 != null || imageUrl != null))
-                GestureDetector(
-                  onTap: () {
-                    final src = (imageBase64 != null && imageBase64!.isNotEmpty)
-                        ? (imageBase64!.startsWith('data:') ? imageBase64! : 'data:image/png;base64,$imageBase64')
-                        : imageUrl!;
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => ImageViewerScreen(imageSource: src)),
-                    );
-                  },                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image(
-                      image: _getImageProvider(
-                        (imageBase64 != null && imageBase64!.isNotEmpty) ? imageBase64! : imageUrl!,
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        final src = (imageBase64 != null && imageBase64!.isNotEmpty)
+                            ? (imageBase64!.startsWith('data:') ? imageBase64! : 'data:image/png;base64,$imageBase64')
+                            : imageUrl!;
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => ImageViewerScreen(imageSource: src)),
+                        );
+                      },
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image(
+                          image: _imageProvider!,
+                          width: 200,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image),
+                        ),
                       ),
-                      width: 200,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image),
                     ),
-                  ),
+                    if (widget.imageLabel != null && widget.imageLabel!.isNotEmpty && ['classroom', 'computerroom', 'library', 'corridor', 'office'].contains(widget.imageLabel))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          widget.imageLabel!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isMe ? Colors.white70 : AppColors.textSecondary,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                  ],
                 )
               else if (type == 'voice')
                 VoiceMessagePlayer(
@@ -238,10 +309,8 @@ class MessageBubble extends StatelessWidget {
             CircleAvatar(
               radius: 14,
               backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-              backgroundImage: (senderAvatar != null && senderAvatar!.isNotEmpty)
-                  ? _getImageProvider(senderAvatar!)
-                  : null,
-              child: (senderAvatar == null || senderAvatar!.isEmpty)
+              backgroundImage: _avatarProvider,
+              child: _avatarProvider == null
                   ? Text(
                       senderName.isNotEmpty ? senderName[0].toUpperCase() : '?',
                       style: const TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.bold),
@@ -282,7 +351,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildDeliveryIcon() {
-    switch (deliveryStatus) {
+    switch (widget.deliveryStatus) {
       case 'read':
         return const Icon(Icons.done_all, size: 14, color: Colors.lightBlueAccent);
       case 'delivered':
@@ -298,6 +367,8 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildLinkPreview() {
+    final isMe = widget.isMe;
+    final text = widget.text;
     final urlRegex = RegExp(r'https?://[^\s]+');
     final match = urlRegex.firstMatch(text);
     final url = match?.group(0) ?? '';
@@ -345,7 +416,7 @@ class MessageBubble extends StatelessWidget {
 
   List<Widget> _buildReactionChips() {
     final Map<String, int> emojiCounts = {};
-    for (final r in reactions) {
+    for (final r in widget.reactions) {
       final emoji = r['emoji'] as String? ?? '';
       emojiCounts[emoji] = (emojiCounts[emoji] ?? 0) + 1;
     }
@@ -358,8 +429,8 @@ class MessageBubble extends StatelessWidget {
   }
 
   String _formatTimestamp() {
-    if (timestamp == null) return '';
-    return TimeUtils.formatTime(timestamp!);
+    if (widget.timestamp == null) return '';
+    return TimeUtils.formatTime(widget.timestamp!);
   }
 }
 

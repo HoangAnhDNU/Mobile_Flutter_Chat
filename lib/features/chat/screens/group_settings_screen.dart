@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_config.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -51,6 +53,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   bool get _isAdmin {
     final authProvider = context.read<AuthProvider>();
     return _adminId == authProvider.uid;
+  }
+
+  ImageProvider _getAvatarImage(String url) {
+    if (url.startsWith('data:')) {
+      final base64Str = url.split(',').last;
+      return MemoryImage(base64Decode(base64Str));
+    }
+    return NetworkImage(AppConfig.resolveMediaUrl(url));
   }
 
   Future<void> _loadGroupInfo() async {
@@ -175,7 +185,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   CircleAvatar(
                     radius: 50,
                     backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                    backgroundImage: _groupAvatar.isNotEmpty ? NetworkImage(_groupAvatar) : null,
+                    backgroundImage: _groupAvatar.isNotEmpty ? _getAvatarImage(_groupAvatar) : null,
                     child: _groupAvatar.isEmpty
                         ? const Icon(Icons.group, size: 50, color: AppColors.primary)
                         : null,
@@ -229,7 +239,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               return ListTile(
                 leading: CircleAvatar(
                   backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                  backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                  backgroundImage: avatar.isNotEmpty ? _getAvatarImage(avatar) : null,
                   child: avatar.isEmpty ? Text(name[0].toUpperCase(), style: const TextStyle(color: AppColors.primary)) : null,
                 ),
                 title: Text(name),

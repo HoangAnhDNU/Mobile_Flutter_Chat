@@ -103,7 +103,7 @@ class MyApp extends StatelessWidget {
               Locale('vi', 'VN'),
               Locale('en', 'US'),
             ],
-            locale: const Locale('vi', 'VN'),
+            locale: themeProvider.locale,
           );
         },
       ),

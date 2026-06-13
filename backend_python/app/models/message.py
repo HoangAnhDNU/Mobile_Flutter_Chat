@@ -39,6 +39,7 @@ class Message(Base):
     reply_to_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
     is_deleted = Column(Boolean, default=False)
     is_pinned = Column(Boolean, default=False, nullable=False)
+    image_label = Column(String(50), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     edited_at = Column(DateTime, nullable=True)
     
@@ -63,6 +64,7 @@ class Message(Base):
             "reply_to_id": str(self.reply_to_id) if self.reply_to_id else None,
             "is_deleted": self.is_deleted,
             "is_pinned": self.is_pinned,
+            "image_label": self.image_label,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "edited_at": self.edited_at.isoformat() if self.edited_at else None,
         }
@@ -104,11 +106,25 @@ class MessageReaction(Base):
 class MessageReadStatus(Base):
     """Model MessageReadStatus - theo dõi ai đã đọc tin nhắn"""
     __tablename__ = "message_read_status"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     read_at = Column(DateTime, server_default=func.now())
-    
+
     # Relationships
     message = relationship("Message", back_populates="read_statuses")
+
+
+class DeletedMessage(Base):
+    """Model DeletedMessage - theo dõi tin nhắn bị xóa bởi user nào (delete for me)"""
+    __tablename__ = "deleted_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    deleted_at = Column(DateTime, server_default=func.now())
+
+    # Relationships
+    message = relationship("Message")
+    user = relationship("User")

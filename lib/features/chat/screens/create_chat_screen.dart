@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
@@ -42,6 +44,14 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  ImageProvider _getAvatarImage(String url) {
+    if (url.startsWith('data:')) {
+      final base64Str = url.split(',').last;
+      return MemoryImage(base64Decode(base64Str));
+    }
+    return NetworkImage(AppConfig.resolveMediaUrl(url));
   }
 
   Future<void> _createChat(String otherUserId, String otherUserName) async {
@@ -253,7 +263,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
           leading: CircleAvatar(
             radius: 24,
             backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-            backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(AppConfig.resolveMediaUrl(avatarUrl)) : null,
+            backgroundImage: avatarUrl.isNotEmpty ? _getAvatarImage(avatarUrl) : null,
             child: avatarUrl.isEmpty
                 ? Text(
                     displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
