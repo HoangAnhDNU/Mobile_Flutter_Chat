@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from sqlalchemy import select, text
 
-from .database import async_session_maker, init_db
+from .database import async_session_maker, init_db, engine
 from .models import User, Chat, ChatParticipant, Message, MessageReaction, MessageReadStatus
 
 # Password hasher (giảm rounds để tránh lỗi)
@@ -359,46 +359,49 @@ async def seed_all():
     print("✅ Database tables đã sẵn sàng\n")
     
     # 2. Seed dữ liệu
-    async with async_session_maker() as session:
-        try:
-            # Xóa dữ liệu cũ
-            await clear_all_data(session)
-            
-            # Nâng cấp cột ảnh sang LONGTEXT (để chứa avatar base64)
-            await migrate_longtext_columns(session)
-            
-            # Tạo dữ liệu mới
-            users = await seed_users(session)
-            # users[0] là admin, các chat/message mẫu dùng 4 user thường còn lại
-            normal_users = users[1:]
-            chats = await seed_chats(session, normal_users)
-            await seed_messages(session, chats, normal_users)
-            
-            # Commit tất cả
-            await session.commit()
-            
-            print("\n" + "="*60)
-            print("🎉 SEED DỮ LIỆU THÀNH CÔNG!")
-            print("="*60)
-            print("\n📊 Thống kê:")
-            print(f"  - Users: 5 (1 admin + 4 user)")
-            print(f"  - Chats: 2 (1 chat 1-1, 1 nhóm)")
-            print(f"  - Messages: 7")
-            print(f"  - Reactions: 3")
-            print(f"  - Read Status: 2")
-            print("\n🔑 Tài khoản test:")
-            print("  - admin@gmail.com / Admin123  (Quản trị viên)")
-            print("  - thanhtung@gmail.com / ThanhTung")
-            print("  - haiphong@gmail.com / HaiPhong")
-            print("  - linhtran@gmail.com / LinhTran")
-            print("  - minhnguyen@gmail.com / MinhNguyen")
-            print("\n✅ Bạn có thể đăng nhập bằng bất kỳ tài khoản nào ở trên!")
-            print("="*60 + "\n")
-            
-        except Exception as e:
-            await session.rollback()
-            print(f"\n❌ LỖI: {e}")
-            raise
+    try:
+        async with async_session_maker() as session:
+            try:
+                # Xóa dữ liệu cũ
+                await clear_all_data(session)
+
+                # Nâng cấp cột ảnh sang LONGTEXT (để chứa avatar base64)
+                await migrate_longtext_columns(session)
+
+                # Tạo dữ liệu mới
+                users = await seed_users(session)
+                # users[0] là admin, các chat/message mẫu dùng 4 user thường còn lại
+                normal_users = users[1:]
+                chats = await seed_chats(session, normal_users)
+                await seed_messages(session, chats, normal_users)
+
+                # Commit tất cả
+                await session.commit()
+
+                print("\n" + "="*60)
+                print("🎉 SEED DỮ LIỆU THÀNH CÔNG!")
+                print("="*60)
+                print("\n📊 Thống kê:")
+                print(f"  - Users: 5 (1 admin + 4 user)")
+                print(f"  - Chats: 2 (1 chat 1-1, 1 nhóm)")
+                print(f"  - Messages: 7")
+                print(f"  - Reactions: 3")
+                print(f"  - Read Status: 2")
+                print("\n🔑 Tài khoản test:")
+                print("  - admin@gmail.com / Admin123  (Quản trị viên)")
+                print("  - thanhtung@gmail.com / ThanhTung")
+                print("  - haiphong@gmail.com / HaiPhong")
+                print("  - linhtran@gmail.com / LinhTran")
+                print("  - minhnguyen@gmail.com / MinhNguyen")
+                print("\n✅ Bạn có thể đăng nhập bằng bất kỳ tài khoản nào ở trên!")
+                print("="*60 + "\n")
+
+            except Exception as e:
+                await session.rollback()
+                print(f"\n❌ LỖI: {e}")
+                raise
+    finally:
+        await engine.dispose()
 
 
 if __name__ == "__main__":

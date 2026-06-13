@@ -784,7 +784,7 @@ class ApiService {
     final data = _decode(response) as Map<String, dynamic>;
     return (data['requests'] as List?)?.map((u) {
           final m = _adaptUser(Map<String, dynamic>.from(u as Map));
-          m['friendship_id'] = (u as Map)['friendship_id']?.toString() ?? '';
+          m['friendship_id'] = (u)['friendship_id']?.toString() ?? '';
           return m;
         }).toList() ??
         [];
