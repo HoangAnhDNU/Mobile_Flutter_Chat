@@ -6,6 +6,7 @@ import '../../auth/providers/auth_provider.dart';
 import 'admin_stats_tab.dart';
 import 'admin_users_tab.dart';
 import 'admin_groups_tab.dart';
+import 'admin_activity_log_tab.dart';
 
 /// Trang quản trị với thanh điều hướng dưới cùng (chỉ icon).
 class AdminDashboardScreen extends StatefulWidget {
@@ -18,12 +19,13 @@ class AdminDashboardScreen extends StatefulWidget {
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _currentIndex = 0;
 
-  static const _titles = ['Thống kê hệ thống', 'Quản lý người dùng', 'Quản lý nhóm chat'];
+  static const _titles = ['Thống kê hệ thống', 'Quản lý người dùng', 'Quản lý nhóm chat', 'Nhật ký'];
 
   final _pages = const [
     AdminStatsTab(),
     AdminUsersTab(),
     AdminGroupsTab(),
+    AdminActivityLogTab(),
   ];
 
   Future<void> _logout() async {
@@ -66,6 +68,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               _navItem(0, Icons.bar_chart_outlined, Icons.bar_chart),
               _navItem(1, Icons.people_outline, Icons.people),
               _navItem(2, Icons.groups_2_outlined, Icons.groups_2),
+              _navItem(3, Icons.history_outlined, Icons.history),
             ],
           ),
         ),

@@ -93,22 +93,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
-  Future<void> _startChatWithUser(String otherUserId, String otherUserName) async {
-    final authProvider = context.read<AuthProvider>();
-    if (authProvider.uid == null) return;
-
-    final result = await ApiService.createChat(
-      participants: [authProvider.uid!, otherUserId],
-      createdBy: authProvider.uid!,
-    );
-
-    if (!mounted) return;
-    Navigator.pushNamed(context, AppRoutes.chatDetail,
-        arguments: {'chatId': result['chatId'], 'chatName': otherUserName});
-    
-    await _loadData();
-  }
-
   Widget _buildChatList() {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());

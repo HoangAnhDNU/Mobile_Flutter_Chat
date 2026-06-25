@@ -40,6 +40,7 @@ class Message(Base):
     is_deleted = Column(Boolean, default=False)
     is_pinned = Column(Boolean, default=False, nullable=False)
     image_label = Column(String(50), nullable=True)
+    expires_at = Column(DateTime, nullable=True)  # Disappearing messages
     created_at = Column(DateTime, server_default=func.now())
     edited_at = Column(DateTime, nullable=True)
     

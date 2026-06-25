@@ -557,15 +557,106 @@ class ApiService {
     } catch (_) {}
   }
 
-  static Future<void> archiveChat(int chatId, bool isArchived) async {}
+  static Future<void> archiveChat(int chatId, bool isArchived) async {
+    try {
+      await _post(Uri.parse('$baseUrl/chat/$chatId/archive'), headers: _headers);
+    } catch (_) {}
+  }
 
-  // ==================== Block (backend chưa hỗ trợ) ====================
+  static Future<void> clearChatHistory(int chatId) async {
+    await _delete(Uri.parse('$baseUrl/chat/$chatId/messages'), headers: _headers);
+  }
 
-  static Future<void> blockUser(String blockedUid) async {}
+  // ==================== Forward ====================
 
-  static Future<void> unblockUser(String blockedUid) async {}
+  static Future<Map<String, dynamic>> forwardMessage(int messageId, int targetChatId) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/chat/messages/$messageId/forward?target_chat_id=$targetChatId'),
+      headers: _headers,
+    );
+    return _decode(response) as Map<String, dynamic>;
+  }
 
-  static Future<List<dynamic>> getBlockedUsers() async => [];
+  // ==================== Block ====================
+
+  static Future<void> blockUser(String blockedUid) async {
+    await _post(
+      Uri.parse('$baseUrl/block'),
+      headers: _headers,
+      body: jsonEncode({'user_id': blockedUid}),
+    );
+  }
+
+  static Future<void> unblockUser(String blockedUid) async {
+    await _delete(Uri.parse('$baseUrl/block/$blockedUid'), headers: _headers);
+  }
+
+  static Future<List<dynamic>> getBlockedUsers() async {
+    try {
+      final response = await _get(Uri.parse('$baseUrl/block'), headers: _headers);
+      final data = _decode(response) as Map<String, dynamic>;
+      return (data['blocked_users'] as List?) ?? [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ==================== Privacy ====================
+
+  static Future<Map<String, dynamic>> getPrivacySettings() async {
+    try {
+      final response = await _get(Uri.parse('$baseUrl/privacy'), headers: _headers);
+      final data = _decode(response) as Map<String, dynamic>;
+      return (data['privacy'] as Map<String, dynamic>?) ?? {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<void> updatePrivacySettings(Map<String, dynamic> settings) async {
+    await _put(
+      Uri.parse('$baseUrl/privacy'),
+      headers: _headers,
+      body: jsonEncode(settings),
+    );
+  }
+
+  // ==================== Group Invite ====================
+
+  static Future<Map<String, dynamic>?> getInviteLink(int chatId) async {
+    try {
+      final response = await _get(Uri.parse('$baseUrl/invite/$chatId'), headers: _headers);
+      final data = _decode(response) as Map<String, dynamic>;
+      return data['invite'] as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> createInviteLink(int chatId) async {
+    final response = await _post(Uri.parse('$baseUrl/invite/$chatId'), headers: _headers);
+    final data = _decode(response) as Map<String, dynamic>;
+    return data['invite'] as Map<String, dynamic>?;
+  }
+
+  static Future<void> revokeInviteLink(int chatId) async {
+    await _delete(Uri.parse('$baseUrl/invite/$chatId'), headers: _headers);
+  }
+
+  static Future<Map<String, dynamic>> joinViaInvite(String code) async {
+    final response = await _post(Uri.parse('$baseUrl/invite/join/$code'), headers: _headers);
+    return _decode(response) as Map<String, dynamic>;
+  }
+
+  // ==================== Admin Activity Log ====================
+
+  static Future<Map<String, dynamic>> getActivityLog({int page = 1, int limit = 50}) async {
+    final response = await _get(
+      Uri.parse('$baseUrl/admin/activity-log?page=$page&limit=$limit'),
+      headers: _headers,
+    );
+    return _decode(response) as Map<String, dynamic>;
+  }
 
   // ==================== Group management ====================
 

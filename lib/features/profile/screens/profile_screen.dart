@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,6 +11,8 @@ import '../../../core/services/api_service.dart';
 import '../../../core/themes/theme_provider.dart';
 import '../../../core/utils/app_localizations.dart';
 import '../../auth/providers/auth_provider.dart';
+import 'privacy_settings_screen.dart';
+import 'blocked_users_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -321,6 +322,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     subtitle: const Text('Cập nhật mật khẩu đăng nhập'),
                     trailing: const Icon(Icons.chevron_right, size: 20),
                     onTap: _showChangePasswordDialog,
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.shield_outlined, size: 20),
+                    title: const Text('Quyền riêng tư'),
+                    subtitle: const Text('Last seen, ảnh đại diện, tin nhắn tự xóa'),
+                    trailing: const Icon(Icons.chevron_right, size: 20),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacySettingsScreen())),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.block, size: 20),
+                    title: const Text('Người dùng đã chặn'),
+                    trailing: const Icon(Icons.chevron_right, size: 20),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedUsersScreen())),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.text_fields, size: 20),
+                    title: const Text('Cỡ chữ'),
+                    subtitle: Text('${context.watch<ThemeProvider>().fontSize.toInt()}'),
+                    trailing: SizedBox(
+                      width: 150,
+                      child: Slider(
+                        value: context.watch<ThemeProvider>().fontSize,
+                        min: 12,
+                        max: 22,
+                        divisions: 5,
+                        onChanged: (v) => context.read<ThemeProvider>().setFontSize(v),
+                      ),
+                    ),
                   ),
                 ],
               ),

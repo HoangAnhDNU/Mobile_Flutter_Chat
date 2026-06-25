@@ -100,14 +100,12 @@ class _MessageBubbleState extends State<MessageBubble> {
     final text = widget.text;
     final isMe = widget.isMe;
     final senderName = widget.senderName;
-    final senderAvatar = widget.senderAvatar;
-    final timestamp = widget.timestamp;
+    
     final isEdited = widget.isEdited;
     final imageUrl = widget.imageUrl;
     final imageBase64 = widget.imageBase64;
     final type = widget.type;
     final onLongPress = widget.onLongPress;
-    final deliveryStatus = widget.deliveryStatus;
     final replyToText = widget.replyToText;
     final replyToSender = widget.replyToSender;
     final reactions = widget.reactions;
@@ -148,7 +146,7 @@ class _MessageBubbleState extends State<MessageBubble> {
           child: Column(
             crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
-              if (!isDeleted && replyToText != null && replyToText!.isNotEmpty)
+              if (!isDeleted && replyToText != null && replyToText.isNotEmpty)
                 Container(
                   margin: const EdgeInsets.only(bottom: 6),
                   padding: const EdgeInsets.all(8),
@@ -171,7 +169,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                         ),
                       ),
                       Text(
-                        replyToText!,
+                        replyToText,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -205,8 +203,8 @@ class _MessageBubbleState extends State<MessageBubble> {
                   children: [
                     GestureDetector(
                       onTap: () {
-                        final src = (imageBase64 != null && imageBase64!.isNotEmpty)
-                            ? (imageBase64!.startsWith('data:') ? imageBase64! : 'data:image/png;base64,$imageBase64')
+                        final src = (imageBase64 != null && imageBase64.isNotEmpty)
+                            ? (imageBase64.startsWith('data:') ? imageBase64 : 'data:image/png;base64,$imageBase64')
                             : imageUrl!;
                         Navigator.push(
                           context,
@@ -239,7 +237,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                 )
               else if (type == 'voice')
                 VoiceMessagePlayer(
-                  source: (imageUrl != null && imageUrl!.isNotEmpty) ? imageUrl! : '',
+                  source: (imageUrl != null && imageUrl.isNotEmpty) ? imageUrl : '',
                   isMe: isMe,
                   durationMs: voiceDuration,
                 )
@@ -329,7 +327,7 @@ class _MessageBubbleState extends State<MessageBubble> {
         key: UniqueKey(),
         direction: isMe ? DismissDirection.endToStart : DismissDirection.startToEnd,
         confirmDismiss: (direction) async {
-          onSwipeReply?.call();
+          onSwipeReply.call();
           return false;
         },
         background: Align(
@@ -470,10 +468,12 @@ class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
       if (mounted) setState(() => _total = d);
     });
     _player.onPlayerComplete.listen((_) {
-      if (mounted) setState(() {
-        _isPlaying = false;
-        _position = Duration.zero;
-      });
+      if (mounted) {
+        setState(() {
+          _isPlaying = false;
+          _position = Duration.zero;
+        });
+      }
     });
   }
 

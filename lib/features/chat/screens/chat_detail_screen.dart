@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-// import 'package:file_picker/file_picker.dart';  // Temporarily disabled
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_config.dart';
 import '../../../core/services/api_service.dart';
@@ -65,6 +67,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   StreamSubscription<Map<String, dynamic>>? _reactionSubscription;
   StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
   StreamSubscription<Map<String, dynamic>>? _pinSubscription;
+
+  // Voice recording
+  final AudioRecorder _recorder = AudioRecorder();
+  bool _isRecording = false;
+  String? _recordPath;
+  Timer? _recordTimer;
+  int _recordDuration = 0;
 
   ImageProvider _getImageProvider(String url) {
     final resolvedUrl = AppConfig.resolveMediaUrl(url);
@@ -397,66 +406,64 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     setState(() => _showMoreActions = !_showMoreActions);
   }
 
-  // Temporarily disabled due to file_picker dependency conflict
-  /*
-  Future<void> _sendVoiceMessage() async {
+  Future<void> _startRecording() async {
+    if (!(await _recorder.hasPermission())) return;
+    final dir = await getTemporaryDirectory();
+    _recordPath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: _recordPath!);
+    _recordDuration = 0;
+    _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _recordDuration++);
+    });
+    setState(() => _isRecording = true);
+  }
+
+  Future<void> _stopRecordingAndSend() async {
+    _recordTimer?.cancel();
+    final path = await _recorder.stop();
+    setState(() => _isRecording = false);
+
+    if (path == null || path.isEmpty) return;
+    final file = File(path);
+    if (!await file.exists()) return;
+
+    final bytes = await file.readAsBytes();
+    final voiceBase64 = base64Encode(bytes);
     final authProvider = context.read<AuthProvider>();
     if (authProvider.uid == null) return;
 
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        withData: true,
-        allowedExtensions: const ['m4a', 'mp3', 'wav', 'webm', 'ogg', 'aac'],
-      );
+    await ApiService.sendMessage(
+      chatId: _chatId,
+      senderUid: authProvider.uid!,
+      senderName: authProvider.displayName ?? 'Unknown',
+      text: '',
+      messageType: 'voice',
+      voiceBase64: voiceBase64,
+      voiceDuration: _recordDuration * 1000,
+    );
 
-      if (result == null || result.files.isEmpty) return;
-      final picked = result.files.first;
-      final bytes = picked.bytes;
+    SocketService.instance.sendMessage({
+      'chatId': _chatId,
+      'senderUid': authProvider.uid!,
+      'senderName': authProvider.displayName ?? 'Unknown',
+      'text': '',
+      'messageType': 'voice',
+    });
 
-      if (bytes == null || bytes.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không đọc được dữ liệu voice message.')),
-        );
-        return;
-      }
+    await _loadMessages(silent: true);
+    _scrollToLatest();
+    await file.delete();
+  }
 
-      final voiceBase64 = base64Encode(bytes);
-
-      await ApiService.sendMessage(
-        chatId: _chatId,
-        senderUid: authProvider.uid!,
-        senderName: authProvider.displayName ?? 'Unknown',
-        text: '',
-        messageType: 'voice',
-        voiceBase64: voiceBase64,
-        voiceDuration: 0,
-      );
-
-      SocketService.instance.sendMessage({
-        'chatId': _chatId,
-        'senderUid': authProvider.uid!,
-        'senderName': authProvider.displayName ?? 'Unknown',
-        'text': '',
-        'messageType': 'voice',
-      });
-
-      await _loadMessages();
-      _scrollToLatest();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đã gửi voice message.')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gửi voice message thất bại: $e')),
-      );
+  Future<void> _cancelRecording() async {
+    _recordTimer?.cancel();
+    await _recorder.stop();
+    setState(() => _isRecording = false);
+    if (_recordPath != null) {
+      final f = File(_recordPath!);
+      if (await f.exists()) await f.delete();
     }
   }
-  */
 
   Future<void> _updateMessage() async {
     final text = _messageController.text.trim();
@@ -557,6 +564,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.forward, color: AppColors.primary),
+                title: const Text('Chuyển tiếp'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showForwardDialog(int.parse(messageId));
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.copy, color: AppColors.textSecondary),
                 title: const Text('Sao chép'),
                 onTap: () {
@@ -610,6 +625,51 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
             child: const Text('Xóa', style: TextStyle(color: AppColors.error)),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showForwardDialog(int messageId) async {
+    // Load user's chats to pick target
+    final chats = await ApiService.getChats();
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Chuyển tiếp đến', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+            ...chats.where((c) => c['chat_id'] != _chatId).take(10).map((chat) {
+              return ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.chat)),
+                title: Text(chat['chat_name']?.toString() ?? 'Chat'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  try {
+                    await ApiService.forwardMessage(messageId, chat['chat_id'] as int);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Đã chuyển tiếp')),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
+                },
+              );
+            }),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
@@ -1050,14 +1110,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                         icon: const Icon(Icons.photo_camera_outlined, size: 18),
                         label: const Text('Chụp ảnh'),
                       ),
-                      // Temporarily disabled due to file_picker dependency conflict
-                      /*
                       FilledButton.tonalIcon(
-                        onPressed: _isEditing ? _cancelEditing : _sendVoiceMessage,
+                        onPressed: _isRecording ? null : _startRecording,
                         icon: const Icon(Icons.mic_none, size: 18),
-                        label: const Text('Voice'),
+                        label: const Text('Ghi âm'),
                       ),
-                      */
                     ],
                   ),
                 ),
@@ -1082,42 +1139,63 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                 ),
               ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                if (_isEditing)
+            if (_isRecording)
+              Row(
+                children: [
+                  const Icon(Icons.fiber_manual_record, color: Colors.red, size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Đang ghi âm... ${_recordDuration}s',
+                    style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w500),
+                  ),
+                  const Spacer(),
                   IconButton(
                     icon: const Icon(Icons.close, color: AppColors.error),
-                    onPressed: _cancelEditing,
+                    onPressed: _cancelRecording,
                   ),
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      hintText: _isEditing 
-                          ? AppLocalizations.of(context).translate('edit_message') 
-                          : AppLocalizations.of(context).translate('type_message'),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  IconButton(
+                    icon: const Icon(Icons.send, color: AppColors.primary),
+                    onPressed: _stopRecordingAndSend,
+                  ),
+                ],
+              )
+            else
+              Row(
+                children: [
+                  if (_isEditing)
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppColors.error),
+                      onPressed: _cancelEditing,
                     ),
-                    textInputAction: TextInputAction.send,
-                    keyboardType: TextInputType.text,
-                    minLines: 1,
-                    maxLines: 4,
-                    textCapitalization: TextCapitalization.sentences,
-                    onChanged: (value) => _updateTypingStatus(value.trim().isNotEmpty),
-                    onSubmitted: (_) => _isEditing ? _updateMessage() : _sendMessage(),
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: InputDecoration(
+                        hintText: _isEditing 
+                            ? AppLocalizations.of(context).translate('edit_message') 
+                            : AppLocalizations.of(context).translate('type_message'),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      ),
+                      textInputAction: TextInputAction.send,
+                      keyboardType: TextInputType.text,
+                      minLines: 1,
+                      maxLines: 4,
+                      textCapitalization: TextCapitalization.sentences,
+                      onChanged: (value) => _updateTypingStatus(value.trim().isNotEmpty),
+                      onSubmitted: (_) => _isEditing ? _updateMessage() : _sendMessage(),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: Icon(
-                    _isEditing ? Icons.check_circle : Icons.send,
-                    color: AppColors.primary,
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: Icon(
+                      _isEditing ? Icons.check_circle : Icons.send,
+                      color: AppColors.primary,
+                    ),
+                    onPressed: _isEditing ? _updateMessage : _sendMessage,
                   ),
-                  onPressed: _isEditing ? _updateMessage : _sendMessage,
-                ),
-              ],
-            ),
+                ],
+              ),
           ],
         ),
       ),

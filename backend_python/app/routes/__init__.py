@@ -6,6 +6,9 @@ from .chat import router as chat_router
 from .admin import router as admin_router
 from .friend import router as friend_router
 from .image import router as image_router
+from .block import router as block_router
+from .privacy import router as privacy_router
+from .group_invite import router as invite_router
 
 api_router = APIRouter()
 
@@ -15,3 +18,6 @@ api_router.include_router(chat_router, prefix="/chat", tags=["Chat"])
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 api_router.include_router(friend_router, prefix="/friend", tags=["Friend"])
 api_router.include_router(image_router)
+api_router.include_router(block_router)
+api_router.include_router(privacy_router)
+api_router.include_router(invite_router)

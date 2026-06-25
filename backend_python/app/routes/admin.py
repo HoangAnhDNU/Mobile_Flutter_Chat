@@ -70,6 +70,31 @@ async def get_stats(
     )).scalar() or 0
     total_messages = (await db.execute(select(func.count(Message.id)))).scalar() or 0
 
+    # Messages per day (last 7 days)
+    from datetime import datetime, timedelta
+    from sqlalchemy import cast, Date
+    seven_days_ago = datetime.now() - timedelta(days=7)
+    daily_result = await db.execute(
+        select(
+            cast(Message.created_at, Date).label('day'),
+            func.count(Message.id).label('count')
+        ).where(Message.created_at >= seven_days_ago)
+        .group_by(cast(Message.created_at, Date))
+        .order_by(cast(Message.created_at, Date))
+    )
+    daily_messages = [{"day": str(row.day), "count": row.count} for row in daily_result]
+
+    # New users per day (last 7 days)
+    daily_users_result = await db.execute(
+        select(
+            cast(User.created_at, Date).label('day'),
+            func.count(User.id).label('count')
+        ).where(User.created_at >= seven_days_ago)
+        .group_by(cast(User.created_at, Date))
+        .order_by(cast(User.created_at, Date))
+    )
+    daily_new_users = [{"day": str(row.day), "count": row.count} for row in daily_users_result]
+
     return {
         "total_users": total_users,
         "online_users": online_users,
@@ -77,6 +102,8 @@ async def get_stats(
         "total_chats": total_chats,
         "total_groups": total_groups,
         "total_messages": total_messages,
+        "daily_messages": daily_messages,
+        "daily_new_users": daily_new_users,
     }
 
 
@@ -412,3 +439,34 @@ async def remove_group_member(
     await db.delete(part)
     await db.commit()
     return {"message": "Đã xóa thành viên khỏi nhóm"}
+
+
+# ==================== Activity Log ====================
+
+@router.get("/activity-log", response_model=dict)
+async def get_activity_log(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Lấy nhật ký hành động admin"""
+    from ..models.activity_log import ActivityLog
+    from sqlalchemy.orm import selectinload
+
+    offset = (page - 1) * limit
+    result = await db.execute(
+        select(ActivityLog)
+        .options(selectinload(ActivityLog.admin))
+        .order_by(ActivityLog.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    logs = result.scalars().all()
+
+    total = (await db.execute(select(func.count(ActivityLog.id)))).scalar() or 0
+    return {
+        "logs": [log.to_dict() for log in logs],
+        "total": total,
+        "has_more": (page * limit) < total,
+    }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/socket_service.dart';
@@ -93,11 +94,76 @@ class _AdminStatsTabState extends State<AdminStatsTab> with AutomaticKeepAliveCl
               ),
             ),
           ),
+          const SizedBox(height: 24),
+          _buildChart('Tin nhắn 7 ngày qua', _stats['daily_messages'], AppColors.primary),
+          const SizedBox(height: 24),
+          _buildChart('Người dùng mới 7 ngày qua', _stats['daily_new_users'], AppColors.success),
           const SizedBox(height: 16),
           Center(
             child: Text(
               'Cập nhật lúc ${TimeOfDay.now().format(context)}',
               style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChart(String title, dynamic data, Color color) {
+    final list = (data as List?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
+    if (list.isEmpty) return const SizedBox.shrink();
+
+    final spots = list.asMap().entries.map((e) {
+      return FlSpot(e.key.toDouble(), (e.value['count'] as num).toDouble());
+    }).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 150,
+            child: LineChart(
+              LineChartData(
+                gridData: const FlGridData(show: false),
+                titlesData: FlTitlesData(
+                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      getTitlesWidget: (value, meta) {
+                        final idx = value.toInt();
+                        if (idx < 0 || idx >= list.length) return const SizedBox.shrink();
+                        final day = list[idx]['day']?.toString() ?? '';
+                        final parts = day.split('-');
+                        return Text(parts.length >= 3 ? '${parts[2]}/${parts[1]}' : day, style: const TextStyle(fontSize: 9));
+                      },
+                    ),
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: true,
+                    color: color,
+                    barWidth: 2,
+                    dotData: const FlDotData(show: true),
+                    belowBarData: BarAreaData(show: true, color: color.withValues(alpha: 0.1)),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

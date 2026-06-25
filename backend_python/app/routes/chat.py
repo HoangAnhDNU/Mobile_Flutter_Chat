@@ -469,3 +469,83 @@ async def clear_chat_history(
     await db.commit()
     await sio.emit("history_cleared", {"chatId": chat_id}, room=f"chat_{chat_id}")
     return {"message": "Đã xóa toàn bộ lịch sử trò chuyện"}
+
+
+# ==================== FORWARD MESSAGE ====================
+
+@router.post("/messages/{message_id}/forward", response_model=dict)
+async def forward_message(
+    message_id: int = Path(...),
+    target_chat_id: int = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Chuyển tiếp tin nhắn sang chat khác"""
+    # Get original message
+    original = (await db.execute(
+        select(Message).where(Message.id == message_id)
+    )).scalar_one_or_none()
+    if not original:
+        raise HTTPException(status_code=404, detail="Tin nhắn không tồn tại")
+
+    # Check user is participant of target chat
+    check = (await db.execute(
+        select(ChatParticipant).where(
+            and_(
+                ChatParticipant.chat_id == target_chat_id,
+                ChatParticipant.user_id == current_user.id,
+            )
+        )
+    )).scalar_one_or_none()
+    if not check:
+        raise HTTPException(status_code=403, detail="Bạn không phải thành viên chat đích")
+
+    # Create forwarded message
+    forwarded = Message(
+        chat_id=target_chat_id,
+        sender_id=current_user.id,
+        content=original.content,
+        type=original.type,
+        media_url=original.media_url,
+        thumbnail_url=original.thumbnail_url,
+    )
+    db.add(forwarded)
+    await db.flush()
+    await db.refresh(forwarded, attribute_names=["sender", "reactions"])
+
+    message_data = forwarded.to_dict()
+    await sio.emit("new_message", {
+        "chatId": target_chat_id,
+        "senderUid": str(current_user.id),
+        "senderName": current_user.display_name,
+        "message": message_data,
+    }, room=f"chat_{target_chat_id}")
+
+    return {"message": message_data}
+
+
+# ==================== ARCHIVE ====================
+
+@router.post("/{chat_id}/archive", response_model=dict)
+async def toggle_archive(
+    chat_id: int = Path(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Lưu trữ / bỏ lưu trữ chat"""
+    participant = (await db.execute(
+        select(ChatParticipant).where(
+            and_(
+                ChatParticipant.chat_id == chat_id,
+                ChatParticipant.user_id == current_user.id,
+            )
+        )
+    )).scalar_one_or_none()
+    if not participant:
+        raise HTTPException(status_code=403, detail="Bạn không phải thành viên")
+
+    participant.is_archived = not participant.is_archived
+    return {
+        "is_archived": participant.is_archived,
+        "message": "Đã lưu trữ" if participant.is_archived else "Đã bỏ lưu trữ"
+    }
