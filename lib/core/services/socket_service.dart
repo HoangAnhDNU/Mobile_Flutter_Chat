@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../constants/app_config.dart';
@@ -9,6 +10,7 @@ class SocketService {
   String? _uid;
   bool _isConnected = false;
   int? _currentChatId;
+  final Map<String, bool> _presenceCache = {};
 
   final _messageController = StreamController<Map<String, dynamic>>.broadcast();
   final _typingController = StreamController<Map<String, dynamic>>.broadcast();
@@ -17,6 +19,8 @@ class SocketService {
   final _reactionController = StreamController<Map<String, dynamic>>.broadcast();
   final _deleteController = StreamController<Map<String, dynamic>>.broadcast();
   final _pinController = StreamController<Map<String, dynamic>>.broadcast();
+  final _editController = StreamController<Map<String, dynamic>>.broadcast();
+  final _connectController = StreamController<void>.broadcast();
 
   Stream<Map<String, dynamic>> get onMessage => _messageController.stream;
   Stream<Map<String, dynamic>> get onTyping => _typingController.stream;
@@ -25,6 +29,10 @@ class SocketService {
   Stream<Map<String, dynamic>> get onReaction => _reactionController.stream;
   Stream<Map<String, dynamic>> get onDelete => _deleteController.stream;
   Stream<Map<String, dynamic>> get onPin => _pinController.stream;
+  Stream<Map<String, dynamic>> get onEdit => _editController.stream;
+  Stream<void> get onConnect => _connectController.stream;
+
+  Map<String, bool> get presenceCache => _presenceCache;
 
   bool get isConnected => _isConnected;
 
@@ -40,6 +48,12 @@ class SocketService {
     if (_socket != null && _isConnected) {
       return;
     }
+    // Dispose old socket if exists
+    if (_socket != null) {
+      _socket!.disconnect();
+      _socket!.dispose();
+      _socket = null;
+    }
     try {
       _socket = io.io(
         AppConfig.wsUrl,
@@ -53,6 +67,8 @@ class SocketService {
       _socket!
         ..onConnect((_) {
           _isConnected = true;
+          _connectController.add(null);
+          debugPrint('[SOCKET] Connected, emitting user_online with uid=$uid');
           _socket!.emit('user_online', uid);
           // Tự động vào lại phòng chat hiện tại sau khi kết nối thành công
           // (tránh race condition khi joinChat được gọi lúc socket chưa connect).
@@ -62,10 +78,20 @@ class SocketService {
         })
         ..on('new_message', (data) => _messageController.add(_toMap(data)))
         ..on('user_typing', (data) => _typingController.add(_toMap(data)))
-        ..on('presence_update', (data) => _presenceController.add(_toMap(data)))
+        ..on('presence_update', (data) {
+          final map = _toMap(data);
+          final uid = map['uid']?.toString();
+          final isOnline = map['is_online'] == true;
+          debugPrint('[SOCKET] presence_update: uid=$uid isOnline=$isOnline');
+          if (uid != null) {
+            _presenceCache[uid] = isOnline;
+          }
+          _presenceController.add(map);
+        })
         ..on('delivery_update', (data) => _deliveryController.add(_toMap(data)))
         ..on('reaction_update', (data) => _reactionController.add(_toMap(data)))
         ..on('message_deleted', (data) => _deleteController.add(_toMap(data)))
+        ..on('message_edited', (data) => _editController.add(_toMap(data)))
         ..on('pin_update', (data) => _pinController.add(_toMap(data)))
         ..onDisconnect((_) {
           _isConnected = false;
@@ -164,6 +190,8 @@ class SocketService {
     _reactionController.close();
     _deleteController.close();
     _pinController.close();
+    _editController.close();
+    _connectController.close();
     _instance = null;
   }
 }

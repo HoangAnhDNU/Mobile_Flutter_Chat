@@ -4,6 +4,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/app_localizations.dart';
 import '../../auth/providers/auth_provider.dart';
 
 /// Màn hình quản lý bạn bè: danh sách bạn, lời mời đang chờ,
@@ -18,6 +19,7 @@ class FriendsScreen extends StatefulWidget {
 class _FriendsScreenState extends State<FriendsScreen> {
   List<dynamic> _friends = [];
   List<dynamic> _requests = [];
+  List<dynamic> _blockedIds = [];
   bool _isLoading = true;
 
   @override
@@ -35,6 +37,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
       ]);
       _friends = results[0];
       _requests = results[1];
+      final blocked = await ApiService.getBlockedUsers();
+      _blockedIds = blocked.map((b) => (b as Map<String, dynamic>)['blocked_id']?.toString()).whereType<String>().toList();
     } catch (e) {
       debugPrint('Lỗi tải bạn bè: $e');
     }
@@ -53,27 +57,27 @@ class _FriendsScreenState extends State<FriendsScreen> {
     final email = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Kết bạn qua email'),
+        title: Text(AppLocalizations.of(context).translate('add_by_email')),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Email người muốn kết bạn',
-            prefixIcon: Icon(Icons.email_outlined),
+          decoration: InputDecoration(
+            labelText: AppLocalizations.of(context).translate('friend_email'),
+            prefixIcon: const Icon(Icons.email_outlined),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
-          TextButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Gửi lời mời')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: Text(AppLocalizations.of(context).translate('send_request'))),
         ],
       ),
     );
     if (email == null || email.isEmpty) return;
     final res = await ApiService.sendFriendRequest(email);
     if (res['ok'] == true) {
-      _showSnack(res['message']?.toString() ?? 'Đã gửi lời mời');
+      _showSnack(res['message']?.toString() ?? AppLocalizations.of(context).translate('request_sent'));
     } else {
-      _showSnack(res['error']?.toString() ?? 'Gửi lời mời thất bại', error: true);
+      _showSnack(res['error']?.toString() ?? AppLocalizations.of(context).translate('request_failed'), error: true);
     }
   }
 
@@ -83,7 +87,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Mã QR kết bạn của bạn'),
+        title: Text(AppLocalizations.of(context).translate('qr_code_title')),
         content: SizedBox(
           width: 240,
           child: Column(
@@ -101,46 +105,102 @@ class _FriendsScreenState extends State<FriendsScreen> {
               const SizedBox(height: 12),
               Text(email, style: const TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 4),
-              const Text(
-                'Người khác quét mã này để lấy email và gửi lời mời kết bạn cho bạn.',
+              Text(
+                AppLocalizations.of(context).translate('qr_scan_desc'),
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
               ),
             ],
           ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng'))],
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(context).translate('close')))],
       ),
     );
+  }
+
+  void _blockUser(Map<String, dynamic> friend) async {
+    final uid = friend['id']?.toString();
+    if (uid == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(AppLocalizations.of(context).translate('block_user')),
+        content: Text(AppLocalizations.of(context).tr('block_friend_confirm', params: {'name': friend['display_name']})),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(AppLocalizations.of(context).translate('block'), style: const TextStyle(color: AppColors.error))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ApiService.blockUser(uid);
+      _showSnack(AppLocalizations.of(context).tr('blocked_user_name', params: {'name': friend['display_name']}));
+      _loadAll();
+    } catch (e) {
+      _showSnack(AppLocalizations.of(context).translate('block_failed_short'), error: true);
+    }
+  }
+
+  void _unblockUser(Map<String, dynamic> friend) async {
+    final uid = friend['id']?.toString();
+    if (uid == null) return;
+    try {
+      await ApiService.unblockUser(uid);
+      _showSnack(AppLocalizations.of(context).tr('unblocked_user_name', params: {'name': friend['display_name']}));
+      _loadAll();
+    } catch (e) {
+      _showSnack(AppLocalizations.of(context).translate('unblock_failed_short'), error: true);
+    }
+  }
+
+  bool _isBlocked(Map<String, dynamic> f) {
+    final uid = f['id']?.toString();
+    return uid != null && _blockedIds.contains(uid);
   }
 
   Future<void> _startChat(Map<String, dynamic> friend) async {
     final auth = context.read<AuthProvider>();
     if (auth.uid == null) return;
     try {
-      debugPrint('Starting chat with friend: ${friend['id']}');
       final res = await ApiService.createChat(
         participants: [auth.uid!, friend['id'].toString()],
         createdBy: auth.uid!,
       );
-      debugPrint('CreateChat response: $res');
       if (!mounted) return;
       final chatId = res['chatId'];
-      debugPrint('ChatId: $chatId');
+      final chat = res['chat'] as Map?;
+      String? chatAvatar = chat?['avatar_url']?.toString();
+      String? chatName = chat?['chat_name']?.toString();
+      if (chat != null && chatAvatar == null) {
+        final participants = chat['participants'] as List?;
+        if (participants != null) {
+          final auth = context.read<AuthProvider>();
+          for (final p in participants) {
+            final pm = p as Map<String, dynamic>;
+            if (pm['id']?.toString() != auth.uid) {
+              chatAvatar = pm['avatar_url']?.toString();
+              chatName ??= pm['display_name']?.toString();
+              break;
+            }
+          }
+        }
+      }
+      chatName ??= friend['display_name'];
+      chatAvatar ??= friend['avatar_url']?.toString();
       if (chatId != null && chatId != 0) {
         Navigator.pushNamed(context, AppRoutes.chatDetail, arguments: {
           'chatId': chatId,
-          'chatName': friend['display_name'],
-          'chatAvatar': friend['avatar_url'],
+          'chatName': chatName,
+          'chatAvatar': chatAvatar,
           'isGroup': false,
         });
       } else {
-        _showSnack('Không thể mở cuộc trò chuyện', error: true);
+        _showSnack(AppLocalizations.of(context).translate('cannot_open_chat'), error: true);
       }
     } catch (e) {
-      debugPrint('Error starting chat: $e');
       if (!mounted) return;
-      _showSnack('Lỗi: $e', error: true);
+      _showSnack(AppLocalizations.of(context).tr('error_msg', params: {'error': e}), error: true);
     }
   }
 
@@ -153,18 +213,18 @@ class _FriendsScreenState extends State<FriendsScreen> {
         appBar: AppBar(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
-          title: const Text('Bạn bè', style: TextStyle(fontWeight: FontWeight.bold)),
+          title: Text(AppLocalizations.of(context).translate('friends_title'), style: const TextStyle(fontWeight: FontWeight.bold)),
           actions: [
-            IconButton(icon: const Icon(Icons.qr_code_2), tooltip: 'Mã QR của tôi', onPressed: _showMyQr),
-            IconButton(icon: const Icon(Icons.person_add_alt_1), tooltip: 'Kết bạn qua email', onPressed: _addFriendByEmail),
+            IconButton(icon: const Icon(Icons.qr_code_2), tooltip: AppLocalizations.of(context).translate('my_qr'), onPressed: _showMyQr),
+            IconButton(icon: const Icon(Icons.person_add_alt_1), tooltip: AppLocalizations.of(context).translate('add_by_email'), onPressed: _addFriendByEmail),
           ],
           bottom: TabBar(
             indicatorColor: Colors.white,
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white70,
             tabs: [
-              const Tab(text: 'Bạn bè'),
-              Tab(text: 'Lời mời${_requests.isNotEmpty ? ' (${_requests.length})' : ''}'),
+              Tab(text: AppLocalizations.of(context).translate('friends_title')),
+              Tab(text: '${AppLocalizations.of(context).translate('requests')}${_requests.isNotEmpty ? ' (${_requests.length})' : ''}'),
             ],
           ),
         ),
@@ -185,9 +245,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
       return RefreshIndicator(
         onRefresh: _loadAll,
         child: ListView(
-          children: const [
-            SizedBox(height: 120),
-            Center(child: Text('Chưa có bạn bè. Hãy kết bạn qua email hoặc QR!', style: TextStyle(color: AppColors.textSecondary))),
+          children: [
+            const SizedBox(height: 120),
+            Center(child: Text(AppLocalizations.of(context).translate('no_friends'), style: const TextStyle(color: AppColors.textSecondary))),
           ],
         ),
       );
@@ -208,23 +268,23 @@ class _FriendsScreenState extends State<FriendsScreen> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.chat_bubble_outline, color: AppColors.primary),
-                  tooltip: 'Nhắn tin',
+                  tooltip: AppLocalizations.of(context).translate('message'),
                   onPressed: () => _startChat(f),
                 ),
                 IconButton(
                   icon: const Icon(Icons.person_remove_outlined, color: AppColors.error),
-                  tooltip: 'Hủy kết bạn',
+                  tooltip: AppLocalizations.of(context).translate('unfriend'),
                   onPressed: () async {
                     final confirmed = await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(
-                        title: const Text('Hủy kết bạn'),
-                        content: Text('Bạn có chắc muốn hủy kết bạn với ${f['display_name']}?'),
+                        title: Text(AppLocalizations.of(context).translate('unfriend')),
+                        content: Text(AppLocalizations.of(context).tr('unfriend_confirm', params: {'name': f['display_name']})),
                         actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
+                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
                           TextButton(
                             onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('Xác nhận', style: TextStyle(color: AppColors.error)),
+                            child: Text(AppLocalizations.of(context).translate('confirm'), style: const TextStyle(color: AppColors.error)),
                           ),
                         ],
                       ),
@@ -232,12 +292,25 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     if (confirmed != true) return;
                     final ok = await ApiService.unfriend(f['id'].toString());
                     if (ok) {
-                      _showSnack('Đã hủy kết bạn');
+                      _showSnack(AppLocalizations.of(context).translate('unfriended'));
                       _loadAll();
                     } else {
-                      _showSnack('Hủy kết bạn thất bại', error: true);
+                      _showSnack(AppLocalizations.of(context).translate('unfriend_failed'), error: true);
                     }
                   },
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (value) {
+                    if (value == 'block') _blockUser(f);
+                    if (value == 'unblock') _unblockUser(f);
+                  },
+                  itemBuilder: (context) => [
+                    if (_isBlocked(f))
+                      PopupMenuItem(value: 'unblock', child: Text(AppLocalizations.of(context).translate('unblock'), style: const TextStyle(color: AppColors.success)))
+                    else
+                      PopupMenuItem(value: 'block', child: Text(AppLocalizations.of(context).translate('block_user'), style: const TextStyle(color: AppColors.error))),
+                  ],
                 ),
               ],
             ),
@@ -252,9 +325,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
       return RefreshIndicator(
         onRefresh: _loadAll,
         child: ListView(
-          children: const [
-            SizedBox(height: 120),
-            Center(child: Text('Không có lời mời kết bạn nào', style: TextStyle(color: AppColors.textSecondary))),
+          children: [
+            const SizedBox(height: 120),
+            Center(child: Text(AppLocalizations.of(context).translate('no_requests'), style: const TextStyle(color: AppColors.textSecondary))),
           ],
         ),
       );
@@ -275,25 +348,38 @@ class _FriendsScreenState extends State<FriendsScreen> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.check_circle, color: AppColors.success),
-                  tooltip: 'Chấp nhận',
+                  tooltip: AppLocalizations.of(context).translate('accept'),
                   onPressed: () async {
                     final ok = await ApiService.acceptFriendRequest(r['friendship_id'].toString());
                     if (ok) {
-                      _showSnack('Đã chấp nhận lời mời');
+                      _showSnack(AppLocalizations.of(context).translate('request_accepted'));
                       _loadAll();
                     }
                   },
                 ),
                 IconButton(
                   icon: const Icon(Icons.cancel, color: AppColors.error),
-                  tooltip: 'Từ chối',
+                  tooltip: AppLocalizations.of(context).translate('reject'),
                   onPressed: () async {
                     final ok = await ApiService.rejectFriendRequest(r['friendship_id'].toString());
                     if (ok) {
-                      _showSnack('Đã từ chối lời mời');
+                      _showSnack(AppLocalizations.of(context).translate('request_rejected'));
                       _loadAll();
                     }
                   },
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (value) {
+                    if (value == 'block') _blockUser(r);
+                    if (value == 'unblock') _unblockUser(r);
+                  },
+                  itemBuilder: (context) => [
+                    if (_isBlocked(r))
+                      PopupMenuItem(value: 'unblock', child: Text(AppLocalizations.of(context).translate('unblock'), style: const TextStyle(color: AppColors.success)))
+                    else
+                      PopupMenuItem(value: 'block', child: Text(AppLocalizations.of(context).translate('block_user'), style: const TextStyle(color: AppColors.error))),
+                  ],
                 ),
               ],
             ),

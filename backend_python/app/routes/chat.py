@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, Path
+from fastapi import APIRouter, Depends, Query, Path, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
@@ -19,6 +19,7 @@ from ..schemas.message import (
 )
 from ..services.chat_service import ChatService
 from ..services.message_service import MessageService
+from ..services.privacy_service import PrivacyService
 from ..dependencies import get_current_user
 from ..models.user import User
 from ..socket_instance import sio
@@ -43,8 +44,25 @@ async def get_chats(
         limit=limit
     )
     
+    chats_data = []
+    for c in chats:
+        cd = c.to_dict(current_user_id=current_user.id)
+        # Apply privacy filtering to participants
+        if "participants" in cd:
+            filtered = []
+            for p in cd["participants"]:
+                pid = int(p.get("id", 0))
+                if pid != current_user.id:
+                    try:
+                        p = await PrivacyService.filter_user_dict(db, current_user.id, p, pid)
+                    except Exception:
+                        pass
+                filtered.append(p)
+            cd["participants"] = filtered
+        chats_data.append(ChatResponse(**cd))
+    
     return ChatListResponse(
-        chats=[ChatResponse(**c.to_dict(current_user_id=current_user.id)) for c in chats],
+        chats=chats_data,
         total=total
     )
 
@@ -62,7 +80,20 @@ async def get_chat(
         user_id=current_user.id
     )
     
-    return {"chat": chat.to_dict(current_user_id=current_user.id)}
+    chat_dict = chat.to_dict(current_user_id=current_user.id)
+    # Apply privacy filtering to each participant
+    if "participants" in chat_dict:
+        filtered = []
+        for p in chat_dict["participants"]:
+            pid = int(p.get("id", 0))
+            try:
+                p = await PrivacyService.filter_user_dict(db, current_user.id, p, pid)
+            except Exception:
+                pass
+            filtered.append(p)
+        chat_dict["participants"] = filtered
+    
+    return {"chat": chat_dict}
 
 
 @router.post("/direct", response_model=dict)
@@ -253,6 +284,25 @@ async def send_message(
         room=f"chat_{chat_id}",
     )
 
+    # Also emit to each participant's personal room so chat list updates
+    from sqlalchemy import select as sa_select
+    from ..models.chat import ChatParticipant
+    participants_result = await db.execute(
+        sa_select(ChatParticipant.user_id).where(ChatParticipant.chat_id == chat_id)
+    )
+    for (uid,) in participants_result.all():
+        if uid != current_user.id:
+            await sio.emit(
+                "new_message",
+                {
+                    "chatId": chat_id,
+                    "senderUid": str(current_user.id),
+                    "senderName": current_user.display_name,
+                    "message": message_data,
+                },
+                room=f"user_{uid}",
+            )
+
     return {
         "message": message_data,
     }
@@ -272,9 +322,24 @@ async def edit_message(
         user_id=current_user.id,
         new_content=request.content
     )
-    
+
+    message_data = message.to_dict()
+
+    # Phát realtime tới phòng chat và personal rooms
+    from sqlalchemy import select as sa_select
+    from ..models.chat import ChatParticipant
+    participants_result = await db.execute(
+        sa_select(ChatParticipant.user_id).where(ChatParticipant.chat_id == message.chat_id)
+    )
+    for (uid,) in participants_result.all():
+        await sio.emit(
+            "message_edited",
+            {"chatId": message.chat_id, "message": message_data},
+            room=f"user_{uid}",
+        )
+
     return {
-        "message": message.to_dict(),
+        "message": message_data,
     }
 
 
@@ -300,6 +365,18 @@ async def delete_message(
             {"chatId": chat_id, "messageId": str(message_id)},
             room=f"chat_{chat_id}",
         )
+        # Also emit to personal rooms so chat list updates
+        from sqlalchemy import select as sa_select
+        from ..models.chat import ChatParticipant
+        participants_result = await db.execute(
+            sa_select(ChatParticipant.user_id).where(ChatParticipant.chat_id == chat_id)
+        )
+        for (uid,) in participants_result.all():
+            await sio.emit(
+                "message_deleted",
+                {"chatId": chat_id, "messageId": str(message_id)},
+                room=f"user_{uid}",
+            )
 
     return {"message": "Xóa tin nhắn thành công"}
 
@@ -471,16 +548,52 @@ async def clear_chat_history(
     return {"message": "Đã xóa toàn bộ lịch sử trò chuyện"}
 
 
+@router.delete("/{chat_id}", response_model=dict)
+async def delete_chat(
+    chat_id: int = Path(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Xóa toàn bộ cuộc trò chuyện (tin nhắn, thành viên, chat)."""
+    from sqlalchemy import select, and_, delete
+    from ..models.message import Message
+    from ..models.chat import Chat, ChatParticipant
+
+    check = (await db.execute(
+        select(ChatParticipant).where(
+            and_(
+                ChatParticipant.chat_id == chat_id,
+                ChatParticipant.user_id == current_user.id,
+            )
+        )
+    )).scalar_one_or_none()
+    if not check:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền với cuộc trò chuyện này")
+
+    await db.execute(delete(Message).where(Message.chat_id == chat_id))
+    await db.execute(delete(ChatParticipant).where(ChatParticipant.chat_id == chat_id))
+    await db.execute(delete(Chat).where(Chat.id == chat_id))
+    await db.commit()
+    await sio.emit("chat_deleted", {"chatId": chat_id}, room=f"chat_{chat_id}")
+    return {"message": "Đã xóa cuộc trò chuyện"}
+
+
 # ==================== FORWARD MESSAGE ====================
 
 @router.post("/messages/{message_id}/forward", response_model=dict)
 async def forward_message(
     message_id: int = Path(...),
-    target_chat_id: int = Query(...),
+    payload: dict = Body(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Chuyển tiếp tin nhắn sang chat khác"""
+    from sqlalchemy import select, and_
+    from ..models.message import Message
+    from ..models.chat import ChatParticipant
+    from fastapi import HTTPException
+
+    target_chat_id = int(payload.get("target_chat_id", 0))
     # Get original message
     original = (await db.execute(
         select(Message).where(Message.id == message_id)
@@ -508,10 +621,11 @@ async def forward_message(
         type=original.type,
         media_url=original.media_url,
         thumbnail_url=original.thumbnail_url,
+        forwarded=True,
     )
     db.add(forwarded)
     await db.flush()
-    await db.refresh(forwarded, attribute_names=["sender", "reactions"])
+    await db.refresh(forwarded, attribute_names=["sender", "reactions", "created_at", "edited_at", "status", "is_pinned", "is_deleted", "forwarded", "image_label"])
 
     message_data = forwarded.to_dict()
     await sio.emit("new_message", {

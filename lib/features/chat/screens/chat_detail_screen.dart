@@ -11,6 +11,7 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_config.dart';
+import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/utils/app_localizations.dart';
@@ -60,6 +61,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   String? _typingUid;
   String _typingName = '';
   String? _myUid;
+  bool _isGroup = false;
+  bool _peerOnline = false;
+  String? _peerUid;
+  bool _peerBlocked = false;
+  StreamSubscription<Map<String, dynamic>>? _presenceSubscription;
   Timer? _typingClearTimer;
   late final AnimationController _typingController;
   StreamSubscription<Map<String, dynamic>>? _messageSubscription;
@@ -67,6 +73,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   StreamSubscription<Map<String, dynamic>>? _reactionSubscription;
   StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
   StreamSubscription<Map<String, dynamic>>? _pinSubscription;
+  StreamSubscription<void>? _connectSubscription;
 
   // Voice recording
   final AudioRecorder _recorder = AudioRecorder();
@@ -102,6 +109,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       _chatId = args?['chatId'] ?? 0;
       _chatName = args?['chatName'] ?? 'Chat';
       _chatAvatar = args?['chatAvatar'];
+      _isGroup = args?['isGroup'] == true;
       if (_chatAvatar != null && _chatAvatar!.isNotEmpty) {
         _cachedAvatarProvider = _getImageProvider(_chatAvatar!);
       }
@@ -109,6 +117,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       _loadMessages();
       _loadPinned();
       _loadMuteStatus();
+      _loadChatInfo();
     }
   }
 
@@ -188,6 +197,72 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
         _loadPinned();
       }
     });
+
+    _presenceSubscription ??= SocketService.instance.onPresence.listen((event) {
+      if (!mounted) return;
+      final uid = event['uid']?.toString();
+      final isOnline = event['is_online'] == true;
+      debugPrint('[PRESENCE] uid=$uid isOnline=$isOnline peerUid=$_peerUid cache=${SocketService.instance.presenceCache}');
+      if (uid != null && uid == _peerUid) {
+        setState(() => _peerOnline = isOnline);
+      }
+    });
+
+    _connectSubscription ??= SocketService.instance.onConnect.listen((_) {
+      if (!mounted) return;
+      _loadChatInfo();
+    });
+  }
+
+  Future<void> _loadChatInfo() async {
+    try {
+      final info = await ApiService.getChatInfo(_chatId);
+      if (!mounted) return;
+      final participants = info['participants'] as List? ?? [];
+      final myUid = _myUid;
+      final peer = participants.where((p) {
+        final m = p as Map<String, dynamic>;
+        return m['uid']?.toString() != myUid;
+      }).toList();
+      setState(() {
+        _isGroup = info['is_group'] == true;
+        if (peer.isNotEmpty) {
+          final p = peer.first as Map<String, dynamic>;
+          _peerUid = p['uid']?.toString();
+          final apiOnline = p['is_online'] == true;
+          final cachedOnline = _peerUid != null ? SocketService.instance.presenceCache[_peerUid] : null;
+          debugPrint('[CHAT_INFO] peerUid=$_peerUid apiOnline=$apiOnline cachedOnline=$cachedOnline presenceCache=${SocketService.instance.presenceCache}');
+          if (cachedOnline == true) {
+            _peerOnline = true;
+          } else if (apiOnline || !_peerOnline) {
+            _peerOnline = apiOnline;
+          }
+          debugPrint('[CHAT_INFO] final _peerOnline=$_peerOnline');
+          if (!_isGroup) {
+            final peerAvatar = p['avatar_url']?.toString() ?? '';
+            final peerName = p['display_name']?.toString() ?? '';
+            if (peerAvatar.isNotEmpty) {
+              _chatAvatar = peerAvatar;
+              _cachedAvatarProvider = _getImageProvider(peerAvatar);
+            }
+            if (peerName.isNotEmpty) {
+              _chatName = peerName;
+            }
+          }
+        }
+      });
+      if (_peerUid != null) {
+        final blocked = await ApiService.getBlockedUsers();
+        if (!mounted) return;
+        final isBlocked = blocked.any((b) {
+          final m = b as Map<String, dynamic>;
+          return m['blocked_id']?.toString() == _peerUid;
+        });
+        setState(() => _peerBlocked = isBlocked);
+      }
+    } catch (e) {
+      debugPrint('Error loading chat info: $e');
+    }
   }
 
   Future<void> _resolveTypingName() async {
@@ -218,7 +293,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Tin nhắn mới${(senderName != null && senderName.isNotEmpty) ? ' từ $senderName' : ''}',
+                AppLocalizations.of(context).tr('new_message_from', params: {'name': (senderName != null && senderName.isNotEmpty) ? ' $senderName' : ''}),
                 style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
               ),
             ),
@@ -275,6 +350,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     _reactionSubscription?.cancel();
     _deleteSubscription?.cancel();
     _pinSubscription?.cancel();
+    _presenceSubscription?.cancel();
+    _connectSubscription?.cancel();
     _typingController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
@@ -394,7 +471,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gửi ảnh thất bại: ${e.toString().length > 80 ? e.toString().substring(0, 80) : e.toString()}'),
+          content: Text(AppLocalizations.of(context).tr('send_image_failed', params: {'error': e.toString().length > 80 ? e.toString().substring(0, 80) : e.toString()})),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 5),
         ),
@@ -498,7 +575,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
         builder: (context) => SafeArea(
           child: ListTile(
             leading: const Icon(Icons.delete_outline, color: AppColors.textSecondary),
-            title: const Text('Xóa cho mình'),
+            title: Text(AppLocalizations.of(context).translate('delete_for_me')),
             onTap: () {
               Navigator.pop(context);
               ApiService.deleteForMe(int.parse(messageId)).then((_) => _loadMessages(silent: true));
@@ -519,7 +596,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
             children: [
               ListTile(
                 leading: const Icon(Icons.reply, color: AppColors.primary),
-                title: const Text('Trả lời'),
+                title: Text(AppLocalizations.of(context).translate('reply')),
                 onTap: () {
                   Navigator.pop(context);
                   _setReply(msg);
@@ -527,7 +604,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               ),
               ListTile(
                 leading: const Icon(Icons.emoji_emotions_outlined, color: Colors.orange),
-                title: const Text('Thả cảm xúc'),
+                title: Text(AppLocalizations.of(context).translate('react')),
                 onTap: () {
                   Navigator.pop(context);
                   _showReactionPicker(int.parse(messageId));
@@ -536,7 +613,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               if (isMyMessage)
                 ListTile(
                   leading: const Icon(Icons.edit, color: AppColors.primary),
-                  title: const Text('Chỉnh sửa'),
+                  title: Text(AppLocalizations.of(context).translate('edit')),
                   onTap: () {
                     Navigator.pop(context);
                     setState(() {
@@ -548,7 +625,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                 ),
               ListTile(
                 leading: Icon(Icons.push_pin, color: isPinned ? AppColors.error : AppColors.primary),
-                title: Text(isPinned ? 'Bỏ ghim' : 'Ghim tin nhắn'),
+                title: Text(isPinned ? AppLocalizations.of(context).translate('unpin') : AppLocalizations.of(context).translate('pin_message')),
                 onTap: () async {
                   Navigator.pop(context);
                   final res = await ApiService.pinMessage(_chatId, int.parse(messageId));
@@ -558,14 +635,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                     await _loadPinned();
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(res['error']?.toString() ?? 'Ghim thất bại'), backgroundColor: AppColors.error),
+                      SnackBar(content: Text(res['error']?.toString() ?? AppLocalizations.of(context).translate('pin_failed')), backgroundColor: AppColors.error),
                     );
                   }
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.forward, color: AppColors.primary),
-                title: const Text('Chuyển tiếp'),
+                title: Text(AppLocalizations.of(context).translate('forward')),
                 onTap: () {
                   Navigator.pop(context);
                   _showForwardDialog(int.parse(messageId));
@@ -573,18 +650,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               ),
               ListTile(
                 leading: const Icon(Icons.copy, color: AppColors.textSecondary),
-                title: const Text('Sao chép'),
+                title: Text(AppLocalizations.of(context).translate('copy')),
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: text));
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Đã sao chép'), duration: Duration(seconds: 1)),
+                    SnackBar(content: Text(AppLocalizations.of(context).translate('copied')), duration: const Duration(seconds: 1)),
                   );
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.delete_outline, color: AppColors.textSecondary),
-                title: const Text('Xóa cho mình'),
+                title: Text(AppLocalizations.of(context).translate('delete_for_me')),
                 onTap: () {
                   Navigator.pop(context);
                   ApiService.deleteForMe(int.parse(messageId)).then((_) => _loadMessages(silent: true));
@@ -593,7 +670,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               if (isMyMessage)
                 ListTile(
                   leading: const Icon(Icons.delete_forever, color: AppColors.error),
-                  title: const Text('Xóa cho tất cả'),
+                  title: Text(AppLocalizations.of(context).translate('delete_for_everyone')),
                   onTap: () {
                     Navigator.pop(context);
                     _showDeleteForEveryoneConfirm(messageId);
@@ -610,10 +687,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Xóa cho tất cả'),
-        content: const Text('Tin nhắn sẽ bị xóa cho tất cả mọi người.'),
+        title: Text(AppLocalizations.of(context).translate('delete_for_everyone')),
+        content: Text(AppLocalizations.of(context).translate('delete_for_everyone_confirm')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context).translate('cancel'))),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -622,7 +699,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                 _loadPinned();
               });
             },
-            child: const Text('Xóa', style: TextStyle(color: AppColors.error)),
+            child: Text(AppLocalizations.of(context).translate('delete'), style: const TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -640,27 +717,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Chuyển tiếp đến', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(AppLocalizations.of(context).translate('forward_to'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             ),
-            ...chats.where((c) => c['chat_id'] != _chatId).take(10).map((chat) {
+            ...chats.where((c) => c['id'] != _chatId).take(10).map((chat) {
               return ListTile(
                 leading: const CircleAvatar(child: Icon(Icons.chat)),
                 title: Text(chat['chat_name']?.toString() ?? 'Chat'),
                 onTap: () async {
                   Navigator.pop(ctx);
                   try {
-                    await ApiService.forwardMessage(messageId, chat['chat_id'] as int);
+                    await ApiService.forwardMessage(messageId, chat['id'] as int);
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Đã chuyển tiếp')),
+                        SnackBar(content: Text(AppLocalizations.of(context).translate('forwarded'))),
                       );
                     }
                   } catch (e) {
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red),
+                        SnackBar(content: Text(AppLocalizations.of(context).tr('error_msg', params: {'error': e})), backgroundColor: Colors.red),
                       );
                     }
                   }
@@ -727,7 +804,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                   children: [
                     const Icon(Icons.push_pin, color: AppColors.primary),
                     const SizedBox(width: 8),
-                    Text('Tin nhắn ghim (${pinned.length})',
+                    Text(AppLocalizations.of(context).tr('pinned_messages', params: {'count': pinned.length}),
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ],
                 ),
@@ -735,7 +812,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               const Divider(height: 1),
               Expanded(
                 child: pinned.isEmpty
-                    ? const Center(child: Text('Chưa có tin nhắn ghim'))
+                    ? Center(child: Text(AppLocalizations.of(context).translate('no_pinned')))
                     : ListView.builder(
                         controller: scrollController,
                         itemCount: pinned.length,
@@ -769,30 +846,89 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     }
   }
 
-  void _showClearChatConfirm() {
+  void _confirmBlockUser() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Xóa lịch sử chat'),
-        content: const Text('Tất cả tin nhắn sẽ bị xóa. Bạn có chắc?'),
+      builder: (ctx) => AlertDialog(
+        title: Text(AppLocalizations.of(context).translate('block_user')),
+        content: Text(AppLocalizations.of(context).tr('block_confirm', params: {'name': _chatName})),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(context).translate('cancel'))),
           TextButton(
             onPressed: () async {
-              Navigator.pop(context);
-              final ok = await ApiService.clearChat(_chatId);
-              await _loadMessages(silent: true);
-              await _loadPinned();
-              if (mounted && ok) {
+              Navigator.pop(ctx);
+              if (_peerUid == null) return;
+              try {
+                await ApiService.blockUser(_peerUid!);
+                if (!mounted) return;
+                setState(() => _peerBlocked = true);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Đã xóa lịch sử trò chuyện')),
+                  SnackBar(content: Text(AppLocalizations.of(context).translate('blocked'))),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(AppLocalizations.of(context).tr('block_failed', params: {'error': e}))),
                 );
               }
             },
-            child: const Text('Xóa', style: TextStyle(color: AppColors.error)),
+            child: Text(AppLocalizations.of(context).translate('block'), style: const TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _unblockUser() async {
+    if (_peerUid == null) return;
+    try {
+      await ApiService.unblockUser(_peerUid!);
+      if (!mounted) return;
+      setState(() => _peerBlocked = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).translate('unblocked'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).tr('unblock_failed', params: {'error': e}))),
+      );
+    }
+  }
+
+  void _showClearChatConfirm() {
+    final rootContext = context;
+    showDialog(
+      context: rootContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppLocalizations.of(rootContext).translate('delete_chat')),
+        content: Text(AppLocalizations.of(rootContext).translate('clear_chat_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(AppLocalizations.of(rootContext).translate('cancel')),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              try {
+                await ApiService.deleteChat(_chatId);
+                if (!mounted) return;
+                ScaffoldMessenger.of(rootContext).showSnackBar(
+                  SnackBar(content: Text(AppLocalizations.of(rootContext).translate('chat_deleted'))),
+                );
+                Navigator.of(rootContext).pushNamedAndRemoveUntil(
+                  AppRoutes.chatList,
+                  (route) => route.isFirst,
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(rootContext).showSnackBar(
+                  SnackBar(content: Text(AppLocalizations.of(rootContext).tr('delete_failed', params: {'error': e}))),
+                );
+              }
+            },
+            child: Text(AppLocalizations.of(rootContext).translate('delete'), style: const TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -840,9 +976,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                   ),
                   Text(
                     _isPeerTyping
-                        ? '${_typingName.isNotEmpty ? _typingName : 'Ai đó'} ${AppLocalizations.of(context).translate('typing')}'
-                        : AppLocalizations.of(context).translate('online'),
-                    style: const TextStyle(fontSize: 12, color: AppColors.success),
+                        ? '${_typingName.isNotEmpty ? _typingName : AppLocalizations.of(context).translate('someone')} ${AppLocalizations.of(context).translate('typing')}'
+                        : _isGroup
+                            ? AppLocalizations.of(context).translate('group')
+                            : _peerOnline
+                                ? AppLocalizations.of(context).translate('online')
+                                : AppLocalizations.of(context).translate('offline'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _isPeerTyping || _peerOnline ? AppColors.success : AppColors.textSecondary,
+                    ),
                   ),
                 ],
               ),
@@ -869,19 +1012,37 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                   ApiService.muteChat(_chatId, newMuted);
                   setState(() => _isMuted = newMuted);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(newMuted ? 'Đã tắt thông báo' : 'Đã bật thông báo')),
+                    SnackBar(content: Text(newMuted ? AppLocalizations.of(context).translate('muted') : AppLocalizations.of(context).translate('unmuted'))),
                   );
                   break;
                 case 'pinned':
                   _showPinnedMessages();
                   break;
+                case 'block_user':
+                  _confirmBlockUser();
+                  break;
+                case 'unblock_user':
+                  _unblockUser();
+                  break;
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(value: 'group_settings', child: Text('Cài đặt nhóm')),
-              PopupMenuItem(value: 'toggle_mute', child: Text(_isMuted ? 'Bật thông báo' : 'Tắt thông báo')),
-              const PopupMenuItem(value: 'pinned', child: Text('Xem tin nhắn ghim')),
-              const PopupMenuItem(value: 'clear_chat', child: Text('Xóa lịch sử chat')),
+              if (_isGroup) PopupMenuItem(value: 'group_settings', child: Text(AppLocalizations.of(context).translate('group_settings'))),
+              PopupMenuItem(value: 'toggle_mute', child: Text(_isMuted ? AppLocalizations.of(context).translate('unmute') : AppLocalizations.of(context).translate('mute'))),
+              PopupMenuItem(value: 'pinned', child: Text(AppLocalizations.of(context).translate('view_pinned'))),
+              PopupMenuItem(value: 'clear_chat', child: Text(AppLocalizations.of(context).translate('delete_chat'))),
+              if (!_isGroup && _peerUid != null && !_peerBlocked) ...[
+                PopupMenuItem(
+                  value: 'block_user',
+                  child: Text(AppLocalizations.of(context).translate('block_user'), style: const TextStyle(color: AppColors.error)),
+                ),
+              ],
+              if (!_isGroup && _peerBlocked) ...[
+                PopupMenuItem(
+                  value: 'unblock_user',
+                  child: Text(AppLocalizations.of(context).translate('unblock_user'), style: const TextStyle(color: AppColors.success)),
+                ),
+              ],
             ],
           ),
         ],
@@ -920,7 +1081,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   }
 
   Widget _buildTypingIndicator() {
-    final displayName = _typingName.isNotEmpty ? _typingName : 'Ai đó';
+    final displayName = _typingName.isNotEmpty ? _typingName : AppLocalizations.of(context).translate('someone');
     return Align(
       alignment: Alignment.centerLeft,
       child: Padding(
@@ -947,7 +1108,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               ),
               const SizedBox(width: 6),
               Text(
-                '$displayName đang soạn tin...',
+                AppLocalizations.of(context).tr('typing_with_name', params: {'name': displayName}),
                 style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
               ),
             ],
@@ -973,7 +1134,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Tin nhắn đã ghim (${_pinnedMessages.length})',
+                    AppLocalizations.of(context).tr('pinned_messages', params: {'count': _pinnedMessages.length}),
                     style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
                   ),
                   Text(
@@ -998,10 +1159,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     }
 
     if (_messages.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
-          'Hãy gửi tin nhắn đầu tiên!',
-          style: TextStyle(color: AppColors.textSecondary),
+          AppLocalizations.of(context).translate('first_message'),
+          style: const TextStyle(color: AppColors.textSecondary),
         ),
       );
     }
@@ -1034,6 +1195,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           reactions: reactions,
           isPinned: msg['is_pinned'] == true || msg['is_pinned'] == 1,
           isDeleted: msg['is_deleted'] == true || msg['is_deleted'] == 1,
+          forwarded: msg['forwarded'] == true,
           imageLabel: msg['image_label'],
           onLongPress: () => _showMessageOptions(msg),
           onSwipeReply: () => _setReply(msg),
@@ -1103,17 +1265,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                       FilledButton.tonalIcon(
                         onPressed: _isEditing ? _cancelEditing : () => _sendImage(ImageSource.gallery),
                         icon: const Icon(Icons.photo_library_outlined, size: 18),
-                        label: const Text('Chọn từ thư viện'),
+                        label: Text(AppLocalizations.of(context).translate('from_gallery')),
                       ),
                       FilledButton.tonalIcon(
                         onPressed: _isEditing ? _cancelEditing : _captureFromCamera,
                         icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                        label: const Text('Chụp ảnh'),
+                        label: Text(AppLocalizations.of(context).translate('take_photo')),
                       ),
                       FilledButton.tonalIcon(
                         onPressed: _isRecording ? null : _startRecording,
                         icon: const Icon(Icons.mic_none, size: 18),
-                        label: const Text('Ghi âm'),
+                        label: Text(AppLocalizations.of(context).translate('record')),
                       ),
                     ],
                   ),
@@ -1133,7 +1295,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Tính năng bổ sung sẽ hiển thị ở đây, không mở lớp nền tối.',
+                    AppLocalizations.of(context).translate('more_actions_hint'),
                     style: TextStyle(fontSize: 12, color: AppColors.textSecondary.withValues(alpha: 0.8)),
                   ),
                 ),
@@ -1145,7 +1307,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                   const Icon(Icons.fiber_manual_record, color: Colors.red, size: 16),
                   const SizedBox(width: 8),
                   Text(
-                    'Đang ghi âm... ${_recordDuration}s',
+                    AppLocalizations.of(context).tr('recording', params: {'seconds': _recordDuration}),
                     style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w500),
                   ),
                   const Spacer(),

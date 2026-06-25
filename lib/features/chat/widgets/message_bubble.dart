@@ -1,9 +1,14 @@
 import 'dart:convert';
+import 'dart:html' if (dart.library.html) 'dart:html' show window;
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_config.dart';
+import '../../../core/constants/app_routes.dart';
+import '../../../core/utils/app_localizations.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../core/utils/downloader.dart';
 import '../screens/image_viewer_screen.dart';
@@ -25,6 +30,7 @@ class MessageBubble extends StatefulWidget {
   final List<Map<String, dynamic>> reactions;
   final bool isPinned;
   final bool isDeleted;
+  final bool forwarded;
   final int? voiceDuration;
   final VoidCallback? onSwipeReply;
   final String? imageLabel;
@@ -47,6 +53,7 @@ class MessageBubble extends StatefulWidget {
     this.reactions = const [],
     this.isPinned = false,
     this.isDeleted = false,
+    this.forwarded = false,
     this.voiceDuration,
     this.onSwipeReply,
     this.imageLabel,
@@ -111,11 +118,24 @@ class _MessageBubbleState extends State<MessageBubble> {
     final reactions = widget.reactions;
     final isPinned = widget.isPinned;
     final isDeleted = widget.isDeleted;
+    final forwarded = widget.forwarded;
     final voiceDuration = widget.voiceDuration;
     final onSwipeReply = widget.onSwipeReply;
     Widget bubbleContent = Column(
       crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
+        if (forwarded)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.shortcut, size: 12, color: AppColors.textSecondary),
+                const SizedBox(width: 2),
+                Text('Tin nhắn chuyển tiếp', style: TextStyle(fontSize: 10, color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
+              ],
+            ),
+          ),
         if (isPinned)
           Padding(
             padding: const EdgeInsets.only(bottom: 2),
@@ -124,7 +144,7 @@ class _MessageBubbleState extends State<MessageBubble> {
               children: [
                 Icon(Icons.push_pin, size: 12, color: AppColors.textSecondary),
                 const SizedBox(width: 2),
-                Text('Đã ghim', style: TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+                Text(AppLocalizations.of(context).translate('pinned'), style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
               ],
             ),
           ),
@@ -187,7 +207,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
-                        'Tin nhắn đã được thu hồi',
+                        AppLocalizations.of(context).translate('message_recalled'),
                         style: TextStyle(
                           color: isMe ? Colors.white70 : AppColors.textSecondary,
                           fontStyle: FontStyle.italic,
@@ -241,23 +261,15 @@ class _MessageBubbleState extends State<MessageBubble> {
                   isMe: isMe,
                   durationMs: voiceDuration,
                 )
-              else if (_containsUrl(text))
-                _buildLinkPreview()
               else
-                Text(
-                  text,
-                  style: TextStyle(
-                    color: isMe ? Colors.white : AppColors.textPrimary,
-                    fontSize: 15,
-                  ),
-                ),
+                _buildTextWithLinks(text, isMe),
               const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (isEdited && !isDeleted)
                     Text(
-                      '(đã chỉnh sửa) ',
+                      AppLocalizations.of(context).translate('edited'),
                       style: TextStyle(
                         fontSize: 10,
                         color: isMe ? Colors.white70 : AppColors.textSecondary,
@@ -359,56 +371,94 @@ class _MessageBubbleState extends State<MessageBubble> {
     }
   }
 
-  bool _containsUrl(String text) {
-    final urlRegex = RegExp(r'https?://[^\s]+');
-    return urlRegex.hasMatch(text);
+  void _openInNewTab(String url) {
+    if (kIsWeb) {
+      window.open(url, '_blank');
+    }
   }
 
-  Widget _buildLinkPreview() {
-    final isMe = widget.isMe;
-    final text = widget.text;
+  Widget _buildTextWithLinks(String text, bool isMe) {
     final urlRegex = RegExp(r'https?://[^\s]+');
-    final match = urlRegex.firstMatch(text);
-    final url = match?.group(0) ?? '';
+    final matches = urlRegex.allMatches(text);
+    if (matches.isEmpty) {
+      return Text(
+        text,
+        style: TextStyle(
+          color: isMe ? Colors.white : AppColors.textPrimary,
+          fontSize: 15,
+        ),
+      );
+    }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          text,
+    final spans = <TextSpan>[];
+    int lastEnd = 0;
+    for (final match in matches) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: text.substring(lastEnd, match.start),
           style: TextStyle(
             color: isMe ? Colors.white : AppColors.textPrimary,
             fontSize: 15,
           ),
+        ));
+      }
+      final url = match.group(0)!;
+      spans.add(TextSpan(
+        text: url,
+        style: TextStyle(
+          color: isMe ? Colors.lightBlueAccent : AppColors.primary,
+          fontSize: 15,
+          decoration: TextDecoration.underline,
+          decorationColor: isMe ? Colors.lightBlueAccent : AppColors.primary,
+          decorationThickness: 0.5,
+          height: 1.4,
         ),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: isMe ? Colors.white.withValues(alpha: 0.1) : Colors.grey[200],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.link, size: 16, color: isMe ? Colors.white70 : AppColors.primary),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  url,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isMe ? Colors.white70 : AppColors.primary,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        recognizer: TapGestureRecognizer()
+          ..onTap = () {
+            final uri = Uri.parse(url);
+            String? code;
+            if (uri.queryParameters['code'] != null) {
+              code = uri.queryParameters['code'];
+            } else if (uri.fragment.contains('code=')) {
+              final fragQuery = uri.fragment.substring(uri.fragment.indexOf('?') + 1);
+              code = Uri.splitQueryString(fragQuery)['code'];
+            }
+            if (code != null && code.isNotEmpty && uri.fragment.contains('join-group')) {
+              Navigator.pushNamed(
+                context,
+                AppRoutes.joinGroup,
+                arguments: {'code': code},
+              );
+            } else {
+              String openUrl = url;
+              if (uri.host.contains('youtube.com') && uri.queryParameters['v'] != null) {
+                openUrl = 'https://www.youtube.com/embed/${uri.queryParameters['v']}';
+              } else if (uri.host.contains('youtu.be')) {
+                final videoId = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
+                if (videoId.isNotEmpty) {
+                  openUrl = 'https://www.youtube.com/embed/$videoId';
+                }
+              }
+              if (kIsWeb) {
+                _openInNewTab(openUrl);
+              }
+            }
+          },
+      ));
+      lastEnd = match.end;
+    }
+    if (lastEnd < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastEnd),
+        style: TextStyle(
+          color: isMe ? Colors.white : AppColors.textPrimary,
+          fontSize: 15,
         ),
-      ],
+      ));
+    }
+
+    return Text.rich(
+      TextSpan(children: spans),
     );
   }
 
@@ -502,7 +552,7 @@ class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
     final ts = DateTime.now().millisecondsSinceEpoch;
     downloadDataUri(widget.source, 'amthanh_$ts.m4a');
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Đang tải âm thanh về máy...')),
+      SnackBar(content: Text(AppLocalizations.of(context).translate('downloading_audio'))),
     );
   }
 

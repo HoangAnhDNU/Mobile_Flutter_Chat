@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_routes.dart';
 import '../providers/auth_provider.dart';
@@ -24,14 +25,29 @@ class _SplashScreenState extends State<SplashScreen> {
 
     final authProvider = context.read<AuthProvider>();
     await authProvider.loadUserFromPrefs();
-    
+
     if (!mounted) return;
-    
+
     if (authProvider.isLoggedIn) {
       final route = authProvider.isAdmin ? AppRoutes.adminDashboard : AppRoutes.chatList;
       Navigator.pushReplacementNamed(context, route);
     } else {
-      Navigator.pushReplacementNamed(context, AppRoutes.login);
+      String? joinCode;
+      if (kIsWeb) {
+        final uri = Uri.parse(Uri.base.toString());
+        final fragment = uri.fragment;
+        if (fragment.contains('join-group')) {
+          if (fragment.contains('code=')) {
+            final fragUri = Uri.splitQueryString(fragment.substring(fragment.indexOf('?') + 1));
+            joinCode = fragUri['code'];
+          }
+        }
+      }
+      if (joinCode != null && joinCode.isNotEmpty) {
+        Navigator.pushReplacementNamed(context, AppRoutes.login, arguments: {'joinCode': joinCode});
+      } else {
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
+      }
     }
   }
 

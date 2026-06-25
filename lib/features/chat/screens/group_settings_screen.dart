@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_config.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/app_localizations.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class GroupSettingsScreen extends StatefulWidget {
@@ -31,6 +33,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   bool _isLoading = true;
   bool _initialized = false;
   List<Map<String, dynamic>> _participants = [];
+  Map<String, dynamic>? _inviteLink;
+  bool _loadingInvite = false;
 
   @override
   void didChangeDependencies() {
@@ -72,10 +76,121 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         _adminId = info['created_by'] ?? '';
         _participants = List<Map<String, dynamic>>.from(info['participants'] ?? []);
       });
+      await _loadInviteLink();
     } catch (e) {
       debugPrint('Error loading group info: $e');
     }
     if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadInviteLink() async {
+    setState(() => _loadingInvite = true);
+    try {
+      final invite = await ApiService.getInviteLink(_chatId);
+      if (mounted) setState(() => _inviteLink = invite);
+    } catch (e) {
+      debugPrint('Error loading invite link: $e');
+    }
+    if (mounted) setState(() => _loadingInvite = false);
+  }
+
+  Future<void> _createInviteLink() async {
+    try {
+      final invite = await ApiService.createInviteLink(_chatId);
+      if (mounted) setState(() => _inviteLink = invite);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).tr('create_link_failed', params: {'error': e}))),
+      );
+    }
+  }
+
+  Future<void> _revokeInviteLink() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(AppLocalizations.of(context).translate('disable_link')),
+        content: Text(AppLocalizations.of(context).translate('disable_link_confirm')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(AppLocalizations.of(context).translate('confirm'), style: const TextStyle(color: AppColors.error))),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await ApiService.revokeInviteLink(_chatId);
+      if (mounted) setState(() => _inviteLink = null);
+      await _createInviteLink();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).tr('revoke_link_failed', params: {'error': e}))),
+      );
+    }
+  }
+
+  void _shareInviteLink() {
+    if (_inviteLink == null) return;
+    final code = _inviteLink!['code']?.toString() ?? '';
+    if (code.isEmpty) return;
+    final link = '${AppConfig.baseOrigin}/#/join-group?code=$code';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(AppLocalizations.of(context).translate('invite_link')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SelectableText(link, style: const TextStyle(fontSize: 14)),
+            const SizedBox(height: 8),
+            Text(
+              AppLocalizations.of(context).translate('share_link_desc'),
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: link));
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(AppLocalizations.of(context).translate('link_copied'))),
+              );
+            },
+            child: Text(AppLocalizations.of(context).translate('copy')),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final auth = context.read<AuthProvider>();
+                await ApiService.sendMessage(
+                  chatId: _chatId,
+                  senderUid: auth.uid!,
+                  senderName: auth.displayName ?? '',
+                  text: link,
+                );
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(AppLocalizations.of(context).translate('link_sent'))),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(AppLocalizations.of(context).tr('send_link_failed', params: {'error': e}))),
+                );
+              }
+            },
+            child: Text(AppLocalizations.of(context).translate('send_link_to_chat')),
+          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(context).translate('close'))),
+        ],
+      ),
+    );
   }
 
   Future<void> _updateGroupName() async {
@@ -103,11 +218,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Xóa thành viên'),
-        content: const Text('Bạn có chắc muốn xóa thành viên này?'),
+        title: Text(AppLocalizations.of(context).translate('remove_member')),
+        content: Text(AppLocalizations.of(context).translate('remove_member_confirm')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Xóa', style: TextStyle(color: AppColors.error))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(AppLocalizations.of(context).translate('delete'), style: const TextStyle(color: AppColors.error))),
         ],
       ),
     );
@@ -120,11 +235,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Rời nhóm'),
-        content: const Text('Bạn có chắc muốn rời nhóm này?'),
+        title: Text(AppLocalizations.of(context).translate('leave_group')),
+        content: Text(AppLocalizations.of(context).translate('leave_group_confirm')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Rời nhóm', style: TextStyle(color: AppColors.error))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(AppLocalizations.of(context).translate('leave_group'), style: const TextStyle(color: AppColors.error))),
         ],
       ),
     );
@@ -133,6 +248,35 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     await ApiService.leaveGroup(_chatId);
     if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, AppRoutes.chatList, (route) => false);
+  }
+
+  Future<void> _deleteGroup() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(AppLocalizations.of(context).translate('delete_group')),
+        content: Text(AppLocalizations.of(context).translate('delete_group_confirm')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(AppLocalizations.of(context).translate('delete_group'), style: const TextStyle(color: AppColors.error))),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      await ApiService.deleteChat(_chatId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).translate('group_deleted'))),
+      );
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.chatList, (route) => false);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).tr('delete_group_failed', params: {'error': e}))),
+      );
+    }
   }
 
   Future<void> _addMembers() async {
@@ -164,7 +308,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Cài đặt nhóm'),
+        title: Text(AppLocalizations.of(context).translate('group_settings')),
         actions: [
           if (_isEditing)
             IconButton(
@@ -207,7 +351,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               controller: _nameController,
               enabled: _isAdmin && _isEditing,
               decoration: InputDecoration(
-                labelText: 'Tên nhóm',
+                labelText: AppLocalizations.of(context).translate('group_name'),
                 suffixIcon: _isAdmin
                     ? IconButton(
                         icon: Icon(_isEditing ? Icons.close : Icons.edit, size: 20),
@@ -220,12 +364,12 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Thành viên (${_participants.length})', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(AppLocalizations.of(context).tr('members', params: {'count': _participants.length}), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 if (_isAdmin)
                   TextButton.icon(
                     onPressed: _addMembers,
                     icon: const Icon(Icons.person_add, size: 18),
-                    label: const Text('Thêm'),
+                    label: Text(AppLocalizations.of(context).translate('add')),
                   ),
               ],
             ),
@@ -242,7 +386,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   child: avatar.isEmpty ? Text(name[0].toUpperCase(), style: const TextStyle(color: AppColors.primary)) : null,
                 ),
                 title: Text(name),
-                subtitle: uid == _adminId ? const Text('Admin', style: TextStyle(color: AppColors.primary, fontSize: 12)) : null,
+                subtitle: uid == _adminId ? Text(AppLocalizations.of(context).translate('admin'), style: const TextStyle(color: AppColors.primary, fontSize: 12)) : null,
                 trailing: (_isAdmin && uid != authProvider.uid)
                     ? IconButton(
                         icon: const Icon(Icons.remove_circle_outline, color: AppColors.error),
@@ -252,15 +396,86 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               );
             }),
             const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _leaveGroup,
-                icon: const Icon(Icons.exit_to_app, color: Colors.white),
-                label: const Text('Rời nhóm'),
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.error, foregroundColor: Colors.white),
+            // Invite link section
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.link, color: AppColors.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Text(AppLocalizations.of(context).translate('invite_link'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (_loadingInvite)
+                      const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator()))
+                    else if (_inviteLink != null)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Code: ${_inviteLink!['code'] ?? ''}',
+                            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _shareInviteLink,
+                                  icon: const Icon(Icons.share, size: 18),
+                                  label: Text(AppLocalizations.of(context).translate('view_link')),
+                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+                                ),
+                              ),
+                              if (_isAdmin) ...[
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.refresh, color: AppColors.error),
+                                  tooltip: AppLocalizations.of(context).translate('create_new_link'),
+                                  onPressed: _revokeInviteLink,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      )
+                    else
+                      ElevatedButton.icon(
+                        onPressed: _isAdmin ? _createInviteLink : null,
+                        icon: const Icon(Icons.add_link, size: 18),
+                        label: Text(AppLocalizations.of(context).translate('create_invite_link')),
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+                      ),
+                  ],
+                ),
               ),
             ),
+            const SizedBox(height: 24),
+            if (_isAdmin)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _deleteGroup,
+                  icon: const Icon(Icons.delete_forever, color: Colors.white),
+                  label: Text(AppLocalizations.of(context).translate('delete_group')),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.error, foregroundColor: Colors.white),
+                ),
+              )
+            else
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _leaveGroup,
+                  icon: const Icon(Icons.exit_to_app, color: Colors.white),
+                  label: Text(AppLocalizations.of(context).translate('leave_group')),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.error, foregroundColor: Colors.white),
+                ),
+              ),
           ],
         ),
       ),
@@ -303,7 +518,7 @@ class _AddMembersScreenState extends State<_AddMembersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Thêm thành viên'),
+        title: Text(AppLocalizations.of(context).translate('add_members')),
         actions: [
           if (_selected.isNotEmpty)
             IconButton(
@@ -315,7 +530,7 @@ class _AddMembersScreenState extends State<_AddMembersScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _users.isEmpty
-              ? const Center(child: Text('Không có người dùng để thêm'))
+              ? Center(child: Text(AppLocalizations.of(context).translate('no_users_to_add')))
               : ListView.builder(
                   itemCount: _users.length,
                   itemBuilder: (context, index) {

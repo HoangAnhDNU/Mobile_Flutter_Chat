@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/socket_service.dart';
+import '../../../core/utils/app_localizations.dart';
 
 /// Tab Thống kê hệ thống - bố cục gọn dạng lưới nhỏ + danh sách.
 class AdminStatsTab extends StatefulWidget {
@@ -61,11 +62,11 @@ class _AdminStatsTabState extends State<AdminStatsTab> with AutomaticKeepAliveCl
           // 3 chỉ số người dùng trên một hàng gọn
           Row(
             children: [
-              Expanded(child: _miniStat('Người dùng', _stats['total_users'], Icons.people, AppColors.primary)),
+              Expanded(child: _miniStat(AppLocalizations.of(context).translate('users'), _stats['total_users'], Icons.people, AppColors.primary)),
               const SizedBox(width: 10),
-              Expanded(child: _miniStat('Online', _stats['online_users'], Icons.circle, AppColors.success)),
+              Expanded(child: _miniStat(AppLocalizations.of(context).translate('online'), _stats['online_users'], Icons.circle, AppColors.success)),
               const SizedBox(width: 10),
-              Expanded(child: _miniStat('Bị khóa', _stats['locked_users'], Icons.lock, AppColors.error)),
+              Expanded(child: _miniStat(AppLocalizations.of(context).translate('locked'), _stats['locked_users'], Icons.lock, AppColors.error)),
             ],
           ),
           const SizedBox(height: 16),
@@ -84,24 +85,24 @@ class _AdminStatsTabState extends State<AdminStatsTab> with AutomaticKeepAliveCl
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _statRow('Cuộc trò chuyện', _stats['total_chats'], Icons.chat_bubble_outline, Colors.teal),
+                    _statRow(AppLocalizations.of(context).translate('conversations'), _stats['total_chats'], Icons.chat_bubble_outline, Colors.teal),
                     const Divider(height: 1),
-                    _statRow('Nhóm chat', _stats['total_groups'], Icons.groups_2_outlined, Colors.deepPurple),
+                    _statRow(AppLocalizations.of(context).translate('chat_groups'), _stats['total_groups'], Icons.groups_2_outlined, Colors.deepPurple),
                     const Divider(height: 1),
-                    _statRow('Tổng tin nhắn', _stats['total_messages'], Icons.forum_outlined, Colors.orange),
+                    _statRow(AppLocalizations.of(context).translate('total_messages'), _stats['total_messages'], Icons.forum_outlined, Colors.orange),
                   ],
                 ),
               ),
             ),
           ),
           const SizedBox(height: 24),
-          _buildChart('Tin nhắn 7 ngày qua', _stats['daily_messages'], AppColors.primary),
+          _buildChart(AppLocalizations.of(context).translate('messages_7_days'), _stats['daily_messages'], AppColors.primary),
           const SizedBox(height: 24),
-          _buildChart('Người dùng mới 7 ngày qua', _stats['daily_new_users'], AppColors.success),
+          _buildChart(AppLocalizations.of(context).translate('new_users_7_days'), _stats['daily_new_users'], AppColors.success),
           const SizedBox(height: 16),
           Center(
             child: Text(
-              'Cập nhật lúc ${TimeOfDay.now().format(context)}',
+              AppLocalizations.of(context).tr('updated_at', params: {'time': TimeOfDay.now().format(context)}),
               style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
           ),

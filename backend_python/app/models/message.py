@@ -39,6 +39,7 @@ class Message(Base):
     reply_to_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
     is_deleted = Column(Boolean, default=False)
     is_pinned = Column(Boolean, default=False, nullable=False)
+    forwarded = Column(Boolean, default=False, nullable=False)
     image_label = Column(String(50), nullable=True)
     expires_at = Column(DateTime, nullable=True)  # Disappearing messages
     created_at = Column(DateTime, server_default=func.now())
@@ -65,6 +66,7 @@ class Message(Base):
             "reply_to_id": str(self.reply_to_id) if self.reply_to_id else None,
             "is_deleted": self.is_deleted,
             "is_pinned": self.is_pinned,
+            "forwarded": self.forwarded,
             "image_label": self.image_label,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "edited_at": self.edited_at.isoformat() if self.edited_at else None,

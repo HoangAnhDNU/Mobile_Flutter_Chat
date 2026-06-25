@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/app_localizations.dart';
 
 class BlockedUsersScreen extends StatefulWidget {
   const BlockedUsersScreen({super.key});
@@ -28,7 +29,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
     _load();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đã bỏ chặn')),
+        SnackBar(content: Text(AppLocalizations.of(context).translate('unblocked'))),
       );
     }
   }
@@ -36,11 +37,11 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Người dùng đã chặn')),
+      appBar: AppBar(title: Text(AppLocalizations.of(context).translate('blocked_users'))),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _blockedUsers.isEmpty
-              ? const Center(child: Text('Chưa chặn ai'))
+              ? Center(child: Text(AppLocalizations.of(context).translate('no_blocked')))
               : ListView.builder(
                   itemCount: _blockedUsers.length,
                   itemBuilder: (context, index) {
@@ -52,7 +53,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                       title: Text(user['blocked_name'] ?? 'Unknown'),
                       trailing: TextButton(
                         onPressed: () => _unblock(user['blocked_id'] ?? ''),
-                        child: const Text('Bỏ chặn', style: TextStyle(color: Colors.red)),
+                        child: Text(AppLocalizations.of(context).translate('unblock'), style: const TextStyle(color: Colors.red)),
                       ),
                     );
                   },

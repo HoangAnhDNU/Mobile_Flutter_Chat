@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/app_localizations.dart';
 
 /// Màn hình chỉnh sửa nhóm chat dành cho Admin:
 /// đổi tên, đổi avatar, thêm/xóa thành viên.
@@ -71,7 +72,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
       name: _nameC.text.trim(),
       avatarUrl: _avatarDataUri,
     );
-    _showSnack(ok ? 'Đã lưu thông tin nhóm' : 'Lưu thất bại', error: !ok);
+    _showSnack(ok ? AppLocalizations.of(context).translate('group_info_saved') : AppLocalizations.of(context).translate('save_failed'), error: !ok);
     if (ok) _loadDetail();
   }
 
@@ -79,17 +80,17 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Xóa thành viên'),
-        content: Text('Xóa "${member['display_name']}" khỏi nhóm?'),
+        title: Text(AppLocalizations.of(context).translate('remove_member')),
+        content: Text(AppLocalizations.of(context).tr('remove_member_from_group', params: {'name': member['display_name']})),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Xóa', style: TextStyle(color: AppColors.error))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(AppLocalizations.of(context).translate('delete'), style: const TextStyle(color: AppColors.error))),
         ],
       ),
     );
     if (confirm != true) return;
     final ok = await ApiService.adminRemoveGroupMember(widget.chatId, member['id'].toString());
-    _showSnack(ok ? 'Đã xóa thành viên' : 'Thất bại', error: !ok);
+    _showSnack(ok ? AppLocalizations.of(context).translate('member_removed') : AppLocalizations.of(context).translate('action_failed'), error: !ok);
     if (ok) _loadDetail();
   }
 
@@ -101,7 +102,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
 
     if (!mounted) return;
     if (candidates.isEmpty) {
-      _showSnack('Tất cả người dùng đã ở trong nhóm');
+      _showSnack(AppLocalizations.of(context).translate('all_users_in_group'));
       return;
     }
 
@@ -117,9 +118,9 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
           expand: false,
           builder: (ctx, scroll) => Column(
             children: [
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('Chọn thành viên để thêm', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(AppLocalizations.of(context).translate('select_members_to_add'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
               Expanded(
                 child: ListView.builder(
@@ -146,7 +147,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
                     onPressed: () => Navigator.pop(ctx, true),
-                    child: Text('Thêm ${selected.length} thành viên'),
+                    child: Text(AppLocalizations.of(context).tr('add_members_count', params: {'count': selected.length})),
                   ),
                 ),
               ),
@@ -158,7 +159,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
 
     if (picked == true && selected.isNotEmpty) {
       final ok = await ApiService.adminAddGroupMembers(widget.chatId, selected.toList());
-      _showSnack(ok ? 'Đã thêm thành viên' : 'Thất bại', error: !ok);
+      _showSnack(ok ? AppLocalizations.of(context).translate('members_added') : AppLocalizations.of(context).translate('action_failed'), error: !ok);
       if (ok) _loadDetail();
     }
   }
@@ -168,11 +169,11 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Chỉnh sửa nhóm', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(AppLocalizations.of(context).translate('edit_group'), style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
-          IconButton(icon: const Icon(Icons.save), tooltip: 'Lưu', onPressed: _saveInfo),
+          IconButton(icon: const Icon(Icons.save), tooltip: AppLocalizations.of(context).translate('save'), onPressed: _saveInfo),
         ],
       ),
       body: _isLoading
@@ -212,7 +213,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
                 TextField(
                   controller: _nameC,
                   decoration: InputDecoration(
-                    labelText: 'Tên nhóm',
+                    labelText: AppLocalizations.of(context).translate('group_name'),
                     prefixIcon: const Icon(Icons.edit_outlined),
                     filled: true,
                     fillColor: AppColors.surface,
@@ -223,13 +224,13 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
                 const SizedBox(height: 24),
                 Row(
                   children: [
-                    Text('Thành viên (${_members.length})',
+                    Text(AppLocalizations.of(context).tr('members', params: {'count': _members.length}),
                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                     const Spacer(),
                     TextButton.icon(
                       onPressed: _addMembers,
                       icon: const Icon(Icons.person_add, size: 18),
-                      label: const Text('Thêm'),
+                      label: Text(AppLocalizations.of(context).translate('add')),
                     ),
                   ],
                 ),
@@ -265,7 +266,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(color: Colors.deepPurple, borderRadius: BorderRadius.circular(6)),
-                child: const Text('CHỦ NHÓM', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                child: const Text('OWNER', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
               ),
             ],
           ],
@@ -275,7 +276,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
             ? null
             : IconButton(
                 icon: const Icon(Icons.person_remove, color: AppColors.error),
-                tooltip: 'Xóa khỏi nhóm',
+                tooltip: AppLocalizations.of(context).translate('remove_from_group'),
                 onPressed: () => _removeMember(m),
               ),
       ),

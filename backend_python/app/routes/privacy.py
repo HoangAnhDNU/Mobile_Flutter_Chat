@@ -13,9 +13,9 @@ router = APIRouter(prefix="/privacy", tags=["Privacy"])
 
 
 class PrivacyUpdateRequest(BaseModel):
-    show_last_seen: Optional[str] = None  # everyone, nobody
-    show_avatar: Optional[str] = None  # everyone, nobody
-    show_read_receipts: Optional[bool] = None
+    show_last_seen: Optional[str] = None  # everyone, friends, nobody
+    show_avatar: Optional[str] = None  # everyone, friends, nobody
+    show_read_receipts: Optional[str] = None  # everyone, friends, nobody (stored as bool for now)
     disappearing_messages: Optional[int] = None  # 0, 86400, 604800, 7776000
 
 
@@ -35,6 +35,7 @@ async def get_privacy_settings(
         db.add(privacy)
         await db.flush()
         await db.refresh(privacy)
+        await db.commit()
     return {"privacy": privacy.to_dict()}
 
 
@@ -60,8 +61,14 @@ async def update_privacy_settings(
     if request.show_avatar is not None:
         privacy.show_avatar = request.show_avatar
     if request.show_read_receipts is not None:
-        privacy.show_read_receipts = request.show_read_receipts
+        # Accept both bool and string for backward compat
+        rr = request.show_read_receipts
+        if isinstance(rr, bool):
+            privacy.show_read_receipts = rr
+        elif isinstance(rr, str):
+            privacy.show_read_receipts = rr != 'nobody'
     if request.disappearing_messages is not None:
         privacy.disappearing_messages = request.disappearing_messages
 
+    await db.commit()
     return {"privacy": privacy.to_dict()}

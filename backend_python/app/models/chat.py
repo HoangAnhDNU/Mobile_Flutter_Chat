@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, T
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from datetime import datetime
 from ..database import Base
 
 
@@ -36,6 +37,23 @@ class Chat(Base):
         
         if include_participants:
             data["participants"] = [p.user.to_dict(include_email=False) for p in self.participants if p.user]
+        
+        # Last message (skip deleted/recalled messages)
+        if self.messages:
+            active = [m for m in self.messages if not m.is_deleted]
+            if active:
+                latest = max(active, key=lambda m: m.created_at or datetime.min)
+                data["last_message"] = {
+                    "id": str(latest.id),
+                    "content": latest.content,
+                    "sender_id": str(latest.sender_id) if latest.sender_id else None,
+                    "sender_name": latest.sender.display_name if latest.sender else None,
+                    "created_at": latest.created_at.isoformat() if latest.created_at else None,
+                }
+            else:
+                data["last_message"] = None
+        else:
+            data["last_message"] = None
         
         return data
 

@@ -6,6 +6,7 @@ import 'core/constants/app_routes.dart';
 import 'core/services/api_service.dart';
 import 'core/themes/app_theme.dart';
 import 'core/themes/theme_provider.dart';
+import 'core/utils/app_localizations.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/auth/screens/splash_screen.dart';
 import 'features/auth/screens/login_screen.dart';
@@ -16,6 +17,7 @@ import 'features/chat/screens/chat_detail_screen.dart';
 import 'features/chat/screens/create_chat_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'features/chat/screens/group_settings_screen.dart';
+import 'features/chat/screens/join_group_screen.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
 import 'features/friends/screens/friends_screen.dart';
 
@@ -47,6 +49,15 @@ class MyApp extends StatelessWidget {
             title: 'Flutter Chat',
             debugShowCheckedModeBanner: false,
             theme: themeProvider.isDarkMode ? AppTheme.darkTheme : AppTheme.lightTheme,
+            builder: (context, child) {
+              final scale = themeProvider.fontSize / 16.0;
+              return MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: TextScaler.linear(scale),
+                ),
+                child: child!,
+              );
+            },
             initialRoute: AppRoutes.splash,
             // Khi refresh trên web ở một route bất kỳ (vd /#/admin, /#/chat-detail),
             // luôn khởi động lại từ splash để nạp lại phiên đăng nhập rồi điều hướng
@@ -91,10 +102,19 @@ class MyApp extends StatelessWidget {
                     chatId: args['chatId'],
                   ),
                 );
+              } else if (settings.name == AppRoutes.joinGroup) {
+                final args = settings.arguments as Map<String, dynamic>?;
+                return MaterialPageRoute(
+                  settings: settings,
+                  builder: (context) => JoinGroupScreen(
+                    initialCode: args?['code'],
+                  ),
+                );
               }
               return null;
             },
             localizationsDelegates: const [
+              AppLocalizations.delegate,
               GlobalMaterialLocalizations.delegate,
               GlobalWidgetsLocalizations.delegate,
               GlobalCupertinoLocalizations.delegate,

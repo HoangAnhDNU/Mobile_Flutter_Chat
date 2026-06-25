@@ -49,6 +49,7 @@ class MessageResponse(BaseModel):
     reactions: List[ReactionResponse] = []
     is_deleted: bool = False
     is_pinned: bool = False
+    forwarded: bool = False
     image_label: Optional[str] = None
     created_at: Optional[datetime] = None
     edited_at: Optional[datetime] = None

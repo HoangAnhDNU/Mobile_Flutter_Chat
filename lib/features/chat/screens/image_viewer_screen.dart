@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_config.dart';
+import '../../../core/utils/app_localizations.dart';
 import '../../../core/utils/downloader.dart';
 
 /// Màn xem ảnh phóng to (zoom) kèm nút tải về.
@@ -19,17 +20,17 @@ class ImageViewerScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: const Text('Hình ảnh'),
+        title: Text(AppLocalizations.of(context).translate('image')),
         actions: [
           IconButton(
             icon: const Icon(Icons.download),
-            tooltip: 'Tải về',
+            tooltip: AppLocalizations.of(context).translate('download'),
             onPressed: () {
               final uri = _isDataUri ? imageSource : resolved;
               final ts = DateTime.now().millisecondsSinceEpoch;
               downloadDataUri(uri, 'anh_$ts.png');
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Đang tải ảnh về máy...')),
+                SnackBar(content: Text(AppLocalizations.of(context).translate('downloading_image'))),
               );
             },
           ),

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/app_localizations.dart';
 
 /// Màn hình chụp ảnh trực tiếp bằng camera của thiết bị.
 /// Hoạt động trên web (getUserMedia) và mobile (camera native).
@@ -31,7 +32,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
       _cameras = await availableCameras();
       if (_cameras.isEmpty) {
         setState(() {
-          _error = 'Không tìm thấy camera trên thiết bị này';
+          _error = AppLocalizations.of(context).translate('no_camera_found');
           _isInitializing = false;
         });
         return;
@@ -39,7 +40,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
       await _initController(_selectedCamera);
     } catch (e) {
       setState(() {
-        _error = 'Không truy cập được camera. Vui lòng cấp quyền sử dụng camera.';
+        _error = AppLocalizations.of(context).translate('camera_permission_denied');
         _isInitializing = false;
       });
     }
@@ -62,7 +63,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = 'Không khởi tạo được camera';
+        _error = AppLocalizations.of(context).translate('camera_init_failed');
         _isInitializing = false;
       });
     }
@@ -85,7 +86,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Chụp ảnh thất bại')),
+        SnackBar(content: Text(AppLocalizations.of(context).translate('capture_failed'))),
       );
     }
   }
@@ -103,12 +104,12 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: const Text('Chụp ảnh'),
+        title: Text(AppLocalizations.of(context).translate('take_photo')),
         actions: [
           if (_cameras.length > 1)
             IconButton(
               icon: const Icon(Icons.cameraswitch),
-              tooltip: 'Đổi camera',
+              tooltip: AppLocalizations.of(context).translate('switch_camera'),
               onPressed: _switchCamera,
             ),
         ],

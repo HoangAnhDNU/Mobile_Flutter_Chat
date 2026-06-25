@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/app_localizations.dart';
 
 class AdminActivityLogTab extends StatefulWidget {
   const AdminActivityLogTab({super.key});
@@ -28,14 +29,15 @@ class _AdminActivityLogTabState extends State<AdminActivityLogTab> {
   }
 
   String _actionLabel(String action) {
+    final l10n = AppLocalizations.of(context);
     switch (action) {
-      case 'lock_user': return 'Khóa tài khoản';
-      case 'unlock_user': return 'Mở khóa tài khoản';
-      case 'delete_user': return 'Xóa người dùng';
-      case 'create_user': return 'Tạo người dùng';
-      case 'reset_password': return 'Đặt lại mật khẩu';
-      case 'delete_group': return 'Xóa nhóm';
-      case 'login': return 'Đăng nhập';
+      case 'lock_user': return l10n.translate('log_lock_user');
+      case 'unlock_user': return l10n.translate('log_unlock_user');
+      case 'delete_user': return l10n.translate('log_delete_user');
+      case 'create_user': return l10n.translate('log_create_user');
+      case 'reset_password': return l10n.translate('log_reset_password');
+      case 'delete_group': return l10n.translate('log_delete_group');
+      case 'login': return l10n.translate('log_login');
       default: return action;
     }
   }
@@ -43,7 +45,7 @@ class _AdminActivityLogTabState extends State<AdminActivityLogTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_logs.isEmpty) return const Center(child: Text('Chưa có nhật ký'));
+    if (_logs.isEmpty) return Center(child: Text(AppLocalizations.of(context).translate('no_logs')));
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -55,7 +57,7 @@ class _AdminActivityLogTabState extends State<AdminActivityLogTab> {
             leading: const Icon(Icons.history),
             title: Text(_actionLabel(log['action'] ?? '')),
             subtitle: Text(
-              '${log['admin_name'] ?? 'Admin'} • ${log['target_type'] ?? ''} #${log['target_id'] ?? ''}\n${log['details'] ?? ''}',
+              '${log['admin_name'] ?? AppLocalizations.of(context).translate('admin')} • ${log['target_type'] ?? ''} #${log['target_id'] ?? ''}\n${log['details'] ?? ''}',
             ),
             trailing: Text(
               _formatTime(log['created_at']),

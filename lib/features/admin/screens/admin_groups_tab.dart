@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/app_localizations.dart';
 import 'admin_group_edit_screen.dart';
 
 /// Tab Quản lý nhóm chat.
@@ -48,7 +49,7 @@ class _AdminGroupsTabState extends State<AdminGroupsTab> with AutomaticKeepAlive
       MaterialPageRoute(
         builder: (_) => AdminGroupEditScreen(
           chatId: group['id'].toString(),
-          initialName: group['name']?.toString() ?? 'Nhóm',
+          initialName: group['name']?.toString() ?? AppLocalizations.of(context).translate('group'),
         ),
       ),
     );
@@ -59,17 +60,17 @@ class _AdminGroupsTabState extends State<AdminGroupsTab> with AutomaticKeepAlive
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Giải tán nhóm'),
-        content: Text('Bạn có chắc muốn giải tán nhóm "${group['name']}"? Toàn bộ tin nhắn sẽ bị xóa.'),
+        title: Text(AppLocalizations.of(context).translate('disband_group')),
+        content: Text(AppLocalizations.of(context).tr('disband_group_confirm', params: {'name': group['name']})),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Giải tán', style: TextStyle(color: AppColors.error))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(AppLocalizations.of(context).translate('disband_group'), style: const TextStyle(color: AppColors.error))),
         ],
       ),
     );
     if (confirm != true) return;
     final ok = await ApiService.adminDeleteGroup(group['id'].toString());
-    _showSnack(ok ? 'Đã giải tán nhóm' : 'Thất bại', error: !ok);
+    _showSnack(ok ? AppLocalizations.of(context).translate('group_disbanded') : AppLocalizations.of(context).translate('action_failed'), error: !ok);
     if (ok) _loadGroups();
   }
 
@@ -81,7 +82,7 @@ class _AdminGroupsTabState extends State<AdminGroupsTab> with AutomaticKeepAlive
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _groups.isEmpty
-              ? const Center(child: Text('Chưa có nhóm nào', style: TextStyle(color: AppColors.textSecondary)))
+              ? Center(child: Text(AppLocalizations.of(context).translate('no_groups'), style: const TextStyle(color: AppColors.textSecondary)))
               : RefreshIndicator(
                   onRefresh: _loadGroups,
                   child: ListView.separated(
@@ -104,16 +105,16 @@ class _AdminGroupsTabState extends State<AdminGroupsTab> with AutomaticKeepAlive
                                 ? const Icon(Icons.groups, color: Colors.deepPurple)
                                 : null,
                           ),
-                          title: Text(g['name'] ?? 'Nhóm', style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text('${g['member_count'] ?? 0} thành viên • ${g['message_count'] ?? 0} tin nhắn'),
+                          title: Text(g['name'] ?? AppLocalizations.of(context).translate('group'), style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(AppLocalizations.of(context).tr('group_members_messages', params: {'members': g['member_count'] ?? 0, 'messages': g['message_count'] ?? 0})),
                           trailing: PopupMenuButton<String>(
                             onSelected: (a) {
                               if (a == 'edit') _openEdit(g);
                               if (a == 'delete') _deleteGroup(g);
                             },
                             itemBuilder: (ctx) => [
-                              const PopupMenuItem(value: 'edit', child: Text('Chỉnh sửa nhóm')),
-                              const PopupMenuItem(value: 'delete', child: Text('Giải tán nhóm', style: TextStyle(color: AppColors.error))),
+                              PopupMenuItem(value: 'edit', child: Text(AppLocalizations.of(context).translate('edit_group'))),
+                              PopupMenuItem(value: 'delete', child: Text(AppLocalizations.of(context).translate('disband_group'), style: const TextStyle(color: AppColors.error))),
                             ],
                           ),
                         ),

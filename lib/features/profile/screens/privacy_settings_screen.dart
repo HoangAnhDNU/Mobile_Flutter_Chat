@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/app_localizations.dart';
 
 class PrivacySettingsScreen extends StatefulWidget {
   const PrivacySettingsScreen({super.key});
@@ -12,7 +13,7 @@ class PrivacySettingsScreen extends StatefulWidget {
 class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   String _showLastSeen = 'everyone';
   String _showAvatar = 'everyone';
-  bool _showReadReceipts = true;
+  String _showReadReceipts = 'everyone';
   int _disappearingMessages = 0;
   bool _loading = true;
 
@@ -28,7 +29,12 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       setState(() {
         _showLastSeen = data['show_last_seen'] ?? 'everyone';
         _showAvatar = data['show_avatar'] ?? 'everyone';
-        _showReadReceipts = data['show_read_receipts'] ?? true;
+        final rr = data['show_read_receipts'];
+        if (rr is bool) {
+          _showReadReceipts = rr ? 'everyone' : 'nobody';
+        } else {
+          _showReadReceipts = rr?.toString() ?? 'everyone';
+        }
         _disappearingMessages = data['disappearing_messages'] ?? 0;
         _loading = false;
       });
@@ -38,54 +44,61 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   Future<void> _save(Map<String, dynamic> updates) async {
     try {
       await ApiService.updatePrivacySettings(updates);
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context).tr('save_error', params: {'error': e}))),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Quyền riêng tư')),
+      appBar: AppBar(title: Text(AppLocalizations.of(context).translate('privacy_settings'))),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               children: [
-                _sectionTitle('Ai được xem thông tin của bạn'),
+                _sectionTitle(AppLocalizations.of(context).translate('who_can_see_info')),
                 _dropdownTile(
-                  'Lần cuối online',
+                  AppLocalizations.of(context).translate('last_seen'),
                   _showLastSeen,
-                  ['everyone', 'nobody'],
-                  ['Tất cả', 'Không ai'],
+                  ['everyone', 'friends', 'nobody'],
+                  [AppLocalizations.of(context).translate('everyone'), AppLocalizations.of(context).translate('friends'), AppLocalizations.of(context).translate('nobody')],
                   (v) {
                     setState(() => _showLastSeen = v);
                     _save({'show_last_seen': v});
                   },
                 ),
                 _dropdownTile(
-                  'Ảnh đại diện',
+                  AppLocalizations.of(context).translate('avatar'),
                   _showAvatar,
-                  ['everyone', 'nobody'],
-                  ['Tất cả', 'Không ai'],
+                  ['everyone', 'friends', 'nobody'],
+                  [AppLocalizations.of(context).translate('everyone'), AppLocalizations.of(context).translate('friends'), AppLocalizations.of(context).translate('nobody')],
                   (v) {
                     setState(() => _showAvatar = v);
                     _save({'show_avatar': v});
                   },
                 ),
-                SwitchListTile(
-                  title: const Text('Xác nhận đã đọc'),
-                  subtitle: const Text('Hiển thị tick xanh khi bạn đọc tin nhắn'),
-                  value: _showReadReceipts,
-                  onChanged: (v) {
+                _dropdownTile(
+                  AppLocalizations.of(context).translate('read_receipts'),
+                  _showReadReceipts,
+                  ['everyone', 'friends', 'nobody'],
+                  [AppLocalizations.of(context).translate('everyone'), AppLocalizations.of(context).translate('friends'), AppLocalizations.of(context).translate('nobody')],
+                  (v) {
                     setState(() => _showReadReceipts = v);
                     _save({'show_read_receipts': v});
                   },
                 ),
                 const Divider(),
-                _sectionTitle('Tin nhắn tự xóa'),
+                _sectionTitle(AppLocalizations.of(context).translate('disappearing_messages')),
                 _dropdownTile(
-                  'Tự xóa sau',
+                  AppLocalizations.of(context).translate('auto_delete_after'),
                   _disappearingMessages.toString(),
                   ['0', '86400', '604800', '7776000'],
-                  ['Tắt', '24 giờ', '7 ngày', '90 ngày'],
+                  [AppLocalizations.of(context).translate('off'), AppLocalizations.of(context).translate('24_hours'), AppLocalizations.of(context).translate('7_days'), AppLocalizations.of(context).translate('90_days')],
                   (v) {
                     final val = int.tryParse(v) ?? 0;
                     setState(() => _disappearingMessages = val);

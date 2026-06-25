@@ -135,7 +135,10 @@ async def list_friends(
         other_id = fr.addressee_id if fr.requester_id == current_user.id else fr.requester_id
         u = (await db.execute(select(User).where(User.id == other_id))).scalar_one_or_none()
         if u:
-            friends.append(u.to_dict(include_email=True))
+            from ..services.privacy_service import PrivacyService
+            u_dict = u.to_dict(include_email=True)
+            u_dict = await PrivacyService.filter_user_dict(db, current_user.id, u_dict, u.id)
+            friends.append(u_dict)
     return {"friends": friends, "total": len(friends)}
 
 

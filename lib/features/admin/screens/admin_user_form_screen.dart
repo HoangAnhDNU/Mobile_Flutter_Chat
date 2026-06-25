@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/app_localizations.dart';
 
 /// Màn hình Thêm mới / Chỉnh sửa người dùng (dùng chung).
 /// - Nếu [user] == null: chế độ thêm mới.
@@ -52,7 +53,7 @@ class _AdminUserFormScreenState extends State<AdminUserFormScreen> {
     setState(() => _saving = true);
 
     bool ok;
-    String errorMsg = 'Thao tác thất bại';
+    String errorMsg = AppLocalizations.of(context).translate('action_failed');
     if (widget.isEdit) {
       ok = await ApiService.adminUpdateUser(
         widget.user!['id'].toString(),
@@ -75,7 +76,7 @@ class _AdminUserFormScreenState extends State<AdminUserFormScreen> {
     setState(() => _saving = false);
 
     if (ok) {
-      _showSnack(widget.isEdit ? 'Đã cập nhật người dùng' : 'Đã tạo người dùng');
+      _showSnack(widget.isEdit ? AppLocalizations.of(context).translate('user_updated') : AppLocalizations.of(context).translate('user_created'));
       Navigator.pop(context, true);
     } else {
       _showSnack(errorMsg, error: true);
@@ -87,7 +88,7 @@ class _AdminUserFormScreenState extends State<AdminUserFormScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(widget.isEdit ? 'Chỉnh sửa người dùng' : 'Thêm người dùng mới',
+        title: Text(widget.isEdit ? AppLocalizations.of(context).translate('edit_user') : AppLocalizations.of(context).translate('add_new_user'),
             style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
@@ -99,17 +100,17 @@ class _AdminUserFormScreenState extends State<AdminUserFormScreen> {
           children: [
             TextFormField(
               controller: _nameC,
-              decoration: _dec('Tên hiển thị', Icons.person_outline),
-              validator: (v) => (v == null || v.trim().isEmpty) ? 'Vui lòng nhập tên hiển thị' : null,
+              decoration: _dec(AppLocalizations.of(context).translate('display_name'), Icons.person_outline),
+              validator: (v) => (v == null || v.trim().isEmpty) ? AppLocalizations.of(context).translate('enter_display_name') : null,
             ),
             const SizedBox(height: 14),
             TextFormField(
               controller: _emailC,
               keyboardType: TextInputType.emailAddress,
-              decoration: _dec('Email', Icons.email_outlined),
+              decoration: _dec(AppLocalizations.of(context).translate('email'), Icons.email_outlined),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Vui lòng nhập email';
-                if (!v.contains('@')) return 'Email không hợp lệ';
+                if (v == null || v.trim().isEmpty) return AppLocalizations.of(context).translate('enter_email');
+                if (!v.contains('@')) return AppLocalizations.of(context).translate('invalid_email');
                 return null;
               },
             ),
@@ -118,8 +119,8 @@ class _AdminUserFormScreenState extends State<AdminUserFormScreen> {
               TextFormField(
                 controller: _passC,
                 obscureText: true,
-                decoration: _dec('Mật khẩu (tối thiểu 6 ký tự)', Icons.lock_outline),
-                validator: (v) => (v == null || v.length < 6) ? 'Mật khẩu phải từ 6 ký tự' : null,
+                decoration: _dec(AppLocalizations.of(context).translate('password_min_6'), Icons.lock_outline),
+                validator: (v) => (v == null || v.length < 6) ? AppLocalizations.of(context).translate('password_min_6') : null,
               ),
               const SizedBox(height: 14),
             ],
@@ -134,14 +135,14 @@ class _AdminUserFormScreenState extends State<AdminUserFormScreen> {
                 children: [
                   const Icon(Icons.shield_outlined, color: AppColors.textSecondary),
                   const SizedBox(width: 12),
-                  const Text('Vai trò', style: TextStyle(color: AppColors.textPrimary)),
+                  Text(AppLocalizations.of(context).translate('role'), style: const TextStyle(color: AppColors.textPrimary)),
                   const Spacer(),
                   DropdownButton<String>(
                     value: _role,
                     underline: const SizedBox(),
-                    items: const [
-                      DropdownMenuItem(value: 'user', child: Text('Người dùng')),
-                      DropdownMenuItem(value: 'admin', child: Text('Quản trị viên')),
+                    items: [
+                      DropdownMenuItem(value: 'user', child: Text(AppLocalizations.of(context).translate('user_role'))),
+                      DropdownMenuItem(value: 'admin', child: Text(AppLocalizations.of(context).translate('admin_role'))),
                     ],
                     onChanged: (v) => setState(() => _role = v ?? 'user'),
                   ),
@@ -161,7 +162,7 @@ class _AdminUserFormScreenState extends State<AdminUserFormScreen> {
                 icon: _saving
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : Icon(widget.isEdit ? Icons.save : Icons.person_add),
-                label: Text(widget.isEdit ? 'Lưu thay đổi' : 'Tạo người dùng'),
+                label: Text(widget.isEdit ? AppLocalizations.of(context).translate('save_changes') : AppLocalizations.of(context).translate('create_user')),
               ),
             ),
           ],

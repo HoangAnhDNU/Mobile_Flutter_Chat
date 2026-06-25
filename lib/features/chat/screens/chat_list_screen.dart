@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +7,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_config.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/socket_service.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../core/utils/app_localizations.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -20,6 +22,9 @@ class ChatListScreen extends StatefulWidget {
 class _ChatListScreenState extends State<ChatListScreen> {
   List<dynamic> _chats = [];
   bool _isLoading = false;
+  StreamSubscription? _messageSub;
+  StreamSubscription? _deleteSub;
+  StreamSubscription? _editSub;
 
   ImageProvider _getImageProvider(String url) {
     final resolvedUrl = AppConfig.resolveMediaUrl(url);
@@ -33,6 +38,36 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void initState() {
     super.initState();
+    _loadData();
+    _messageSub = SocketService.instance.onMessage.listen((event) {
+      _loadData();
+    });
+    _deleteSub = SocketService.instance.onDelete.listen((event) {
+      _loadData();
+    });
+    _editSub = SocketService.instance.onEdit.listen((event) {
+      _loadData();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      final joinCode = args?['joinCode'] as String?;
+      if (joinCode != null && joinCode.isNotEmpty) {
+        Navigator.pushNamed(context, AppRoutes.joinGroup, arguments: {'code': joinCode});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _messageSub?.cancel();
+    _deleteSub?.cancel();
+    _editSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     _loadData();
   }
 
@@ -75,18 +110,27 @@ class _ChatListScreenState extends State<ChatListScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.people_alt_outlined),
-            tooltip: 'Bạn bè',
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.friends),
+            tooltip: AppLocalizations.of(context).translate('friends'),
+            onPressed: () async {
+              await Navigator.pushNamed(context, AppRoutes.friends);
+              _loadData();
+            },
           ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.profile),
+            onPressed: () async {
+              await Navigator.pushNamed(context, AppRoutes.profile);
+              _loadData();
+            },
           ),
         ],
       ),
       body: _buildChatList(),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.pushNamed(context, AppRoutes.createChat),
+        onPressed: () async {
+          await Navigator.pushNamed(context, AppRoutes.createChat);
+          _loadData();
+        },
         backgroundColor: AppColors.primary,
         child: const Icon(Icons.edit_square, color: Colors.white),
       ),
@@ -138,11 +182,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
             return await showDialog<bool>(
               context: context,
               builder: (context) => AlertDialog(
-                title: const Text('Xóa cuộc trò chuyện'),
-                content: const Text('Bạn có chắc muốn xóa?'),
+                title: Text(AppLocalizations.of(context).translate('delete_chat')),
+                content: Text(AppLocalizations.of(context).translate('delete_chat_confirm')),
                 actions: [
-                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-                  TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xóa', style: TextStyle(color: AppColors.error))),
+                  TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+                  TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppLocalizations.of(context).translate('delete'), style: const TextStyle(color: AppColors.error))),
                 ],
               ),
             ) ?? false;
@@ -164,9 +208,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final chatName = chat['chat_name'] ?? '';
     final isGroup = chat['is_group'] == true;
     final otherUser = chat['otherUser'] as Map<String, dynamic>?;
+    final authProvider = context.read<AuthProvider>();
+    final myUid = authProvider.uid;
 
     String displayName = chatName;
-    // Với nhóm: dùng avatar của nhóm. Với chat 1-1: dùng avatar đối phương.
     String avatarUrl = isGroup ? (chat['avatar_url']?.toString() ?? '') : '';
 
     if (otherUser != null) {
@@ -174,6 +219,21 @@ class _ChatListScreenState extends State<ChatListScreen> {
         displayName = otherUser['display_name'] ?? 'Unknown';
       }
       avatarUrl = otherUser['avatar_url'] ?? '';
+    }
+
+    String subtitle = lastMessage;
+    final senderUid = chat['last_message_sender_uid']?.toString() ?? '';
+    final senderName = chat['last_message_sender_name']?.toString() ?? '';
+    if (lastMessage.isNotEmpty) {
+      String prefix;
+      if (senderUid == myUid) {
+        prefix = AppLocalizations.of(context).translate('you');
+      } else if (isGroup) {
+        prefix = senderName.isNotEmpty ? senderName : '???';
+      } else {
+        prefix = displayName;
+      }
+      subtitle = '$prefix: $lastMessage';
     }
 
     return ListTile(
@@ -193,7 +253,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         style: const TextStyle(fontWeight: FontWeight.w600),
       ),
       subtitle: Text(
-        lastMessage,
+        subtitle,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
@@ -204,8 +264,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
             )
           : null,
-      onTap: () {
-        Navigator.pushNamed(
+      onTap: () async {
+        await Navigator.pushNamed(
           context,
           AppRoutes.chatDetail,
           arguments: {
@@ -215,6 +275,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             'isGroup': chat['is_group'] == true,
           },
         );
+        _loadData();
       },
     );
   }

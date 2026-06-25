@@ -8,6 +8,7 @@ from ..schemas.user import UpdateProfileRequest, UserResponse, UserListResponse
 from ..dependencies import get_current_user
 from ..models.user import User
 from ..services.auth_service import AuthService
+from ..services.privacy_service import PrivacyService
 
 router = APIRouter()
 
@@ -85,9 +86,15 @@ async def search_users(
     result = await db.execute(query)
     users = result.scalars().all()
     
+    filtered_users = []
+    for u in users:
+        u_dict = u.to_dict(include_email=False)
+        u_dict = await PrivacyService.filter_user_dict(db, current_user.id, u_dict, u.id)
+        filtered_users.append(UserResponse(**u_dict))
+    
     return UserListResponse(
-        users=[UserResponse(**u.to_dict(include_email=False)) for u in users],
-        total=len(users)
+        users=filtered_users,
+        total=len(filtered_users)
     )
 
 
@@ -104,4 +111,6 @@ async def get_user(
     if not user:
         return {"error": "Không tìm thấy người dùng"}
     
-    return {"user": user.to_dict(include_email=False)}
+    user_dict = user.to_dict(include_email=False)
+    user_dict = await PrivacyService.filter_user_dict(db, current_user.id, user_dict, user.id)
+    return {"user": user_dict}

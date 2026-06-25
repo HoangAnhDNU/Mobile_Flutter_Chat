@@ -21,7 +21,7 @@ class AppConfig {
 
   static String get baseOrigin => 'http://$serverHost:$serverPort';
   static String get baseUrl => '$baseOrigin/api';
-  static String get wsUrl => 'ws://$serverHost:$serverPort';
+  static String get wsUrl => 'http://$serverHost:$serverPort';
 
   static String resolveMediaUrl(String url) {
     if (url.isEmpty) return url;

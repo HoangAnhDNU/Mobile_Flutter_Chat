@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 
 from ..database import get_db
@@ -38,7 +39,7 @@ async def block_user(
     block = BlockedUser(blocker_id=current_user.id, blocked_id=blocked_id)
     db.add(block)
     await db.flush()
-    return {"message": "Đã chặn người dùng", "block": block.to_dict()}
+    return {"message": "Đã chặn người dùng", "block": {"id": str(block.id), "blocked_id": str(block.blocked_id)}}
 
 
 @router.delete("/{user_id}", response_model=dict)
@@ -68,7 +69,9 @@ async def get_blocked_users(
 ):
     """Lấy danh sách người dùng đã chặn"""
     result = await db.execute(
-        select(BlockedUser).where(BlockedUser.blocker_id == current_user.id)
+        select(BlockedUser)
+        .where(BlockedUser.blocker_id == current_user.id)
+        .options(selectinload(BlockedUser.blocked))
     )
     blocks = result.scalars().all()
     return {"blocked_users": [b.to_dict() for b in blocks]}

@@ -43,7 +43,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -61,6 +61,7 @@ connected_users: dict = {}
 @sio.event
 async def connect(sid, environ, auth):
     """Handle user connection"""
+    print(f"[SOCKET_CONNECT] sid={sid} auth={auth}")
     # Client có thể gửi token qua auth; nếu có thì set online ngay.
     token = auth.get('token') if auth else None
     if token:
@@ -68,6 +69,12 @@ async def connect(sid, environ, auth):
         user_id = AuthService.decode_token(token)
         if user_id:
             await _set_user_online(sid, user_id, True)
+
+    # Send current online users to the newly connected client
+    online_uids = set(connected_users.values())
+    print(f"[SOCKET_CONNECT] online_uids={online_uids}")
+    for uid in online_uids:
+        await sio.emit('presence_update', {'uid': str(uid), 'is_online': True}, to=sid)
 
 
 async def _set_user_online(sid, user_id, online: bool):
@@ -83,6 +90,7 @@ async def _set_user_online(sid, user_id, online: bool):
 
     if online:
         connected_users[sid] = uid_int
+        await sio.enter_room(sid, f"user_{uid_int}")
 
     try:
         async with async_session_maker() as session:
@@ -90,9 +98,8 @@ async def _set_user_online(sid, user_id, online: bool):
             user = result.scalar_one_or_none()
             if user:
                 user.is_online = online
-                if not online:
-                    from datetime import datetime
-                    user.last_seen = datetime.utcnow()
+                from datetime import datetime
+                user.last_seen = datetime.utcnow()
                 await session.commit()
     except Exception as e:
         print(f"⚠️  Lỗi cập nhật online status: {e}")
@@ -106,19 +113,29 @@ async def _set_user_online(sid, user_id, online: bool):
 async def user_online(sid, data):
     """Client báo đã đăng nhập/online (gửi uid)."""
     uid = data.get('uid') if isinstance(data, dict) else data
+    print(f"[USER_ONLINE] sid={sid} data={data} uid={uid}")
     if uid is not None:
         await _set_user_online(sid, uid, True)
+        # Send current online users to the newly online client
+        online_uids = set(connected_users.values())
+        print(f"[USER_ONLINE] connected_users={connected_users} online_uids={online_uids}")
+        for online_uid in online_uids:
+            await sio.emit('presence_update', {'uid': str(online_uid), 'is_online': True}, to=sid)
 
 
 @sio.event
 async def disconnect(sid):
     """Handle user disconnection"""
     user_id = connected_users.pop(sid, None)
+    print(f"[SOCKET_DISCONNECT] sid={sid} user_id={user_id} remaining={connected_users}")
     if user_id is not None:
         # Báo ngừng soạn tin để tránh kẹt "đang soạn tin"
         await sio.emit('user_typing', {'uid': str(user_id), 'isTyping': False})
-        # Cập nhật offline trong DB + phát presence_update
-        await _set_user_online(sid, user_id, False)
+        # Chỉ set offline nếu không còn connection nào khác của user này
+        still_connected = any(uid == user_id for uid in connected_users.values())
+        print(f"[SOCKET_DISCONNECT] user_id={user_id} still_connected={still_connected}")
+        if not still_connected:
+            await _set_user_online(sid, user_id, False)
 
 
 @sio.event

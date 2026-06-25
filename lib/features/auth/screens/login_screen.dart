@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/utils/account_manager.dart';
+import '../../../core/utils/app_localizations.dart';
 import '../providers/auth_provider.dart';
 import '../../../widgets/loading_overlay.dart';
 
@@ -61,11 +62,13 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       if (!mounted) return;
       final route = authNotifier.isAdmin ? AppRoutes.adminDashboard : AppRoutes.chatList;
-      Navigator.pushReplacementNamed(context, route);
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      final joinCode = args?['joinCode'] as String?;
+      Navigator.pushReplacementNamed(context, route, arguments: joinCode != null ? {'joinCode': joinCode} : null);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(authNotifier.errorMessage ?? 'Đăng nhập thất bại'),
+          content: Text(authNotifier.errorMessage ?? AppLocalizations.of(context).translate('login_failed')),
           backgroundColor: AppColors.error,
         ),
       );
@@ -77,7 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
     await _loadSavedAccounts();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Đã xóa tài khoản ${account.email}')),
+        SnackBar(content: Text(AppLocalizations.of(context).tr('account_deleted', params: {'email': account.email}))),
       );
     }
   }
@@ -88,7 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return LoadingOverlay(
       isLoading: authNotifier.isLoading,
-      message: 'Đang đăng nhập...',
+      message: AppLocalizations.of(context).translate('login'),
       child: Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
@@ -112,17 +115,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                const Text(
-                  'Chào mừng trở lại',
-                  style: TextStyle(
+                Text(
+                  AppLocalizations.of(context).translate('welcome_back'),
+                  style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
                     color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Đăng nhập để tiếp tục trò chuyện',
+                Text(
+                  AppLocalizations.of(context).translate('login_to_continue'),
                   style: TextStyle(
                     fontSize: 14,
                     color: AppColors.textSecondary,
@@ -135,7 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Chuyển nhanh tài khoản',
+                      AppLocalizations.of(context).translate('quick_switch'),
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -191,16 +194,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   key: const Key('email_field'),
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    hintText: 'Email',
-                    prefixIcon: Icon(Icons.mail_outline, color: AppColors.textSecondary),
+                  decoration: InputDecoration(
+                    hintText: AppLocalizations.of(context).translate('email'),
+                    prefixIcon: const Icon(Icons.mail_outline, color: AppColors.textSecondary),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Vui lòng nhập email';
+                      return AppLocalizations.of(context).translate('enter_email_msg');
                     }
                     if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value.trim())) {
-                      return 'Email không hợp lệ';
+                      return AppLocalizations.of(context).translate('invalid_email');
                     }
                     return null;
                   },
@@ -211,7 +214,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _passwordController,
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
-                    hintText: 'Mật khẩu',
+                    hintText: AppLocalizations.of(context).translate('password'),
                     prefixIcon: const Icon(Icons.lock_outline, color: AppColors.textSecondary),
                     suffixIcon: IconButton(
                       icon: Icon(
@@ -223,7 +226,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Vui lòng nhập mật khẩu';
+                      return AppLocalizations.of(context).translate('enter_password_msg');
                     }
                     return null;
                   },
@@ -233,8 +236,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   alignment: Alignment.centerRight,
                   child: TextButton(
                     onPressed: () => Navigator.pushNamed(context, AppRoutes.forgotPassword),
-                    child: const Text(
-                      'Quên mật khẩu?',
+                    child: Text(
+                      AppLocalizations.of(context).translate('forgot_password'),
                       style: TextStyle(color: AppColors.primary),
                     ),
                   ),
@@ -252,20 +255,20 @@ class _LoginScreenState extends State<LoginScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Đăng nhập'),
+                      : Text(AppLocalizations.of(context).translate('login')),
                 ),
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text(
-                      'Chưa có tài khoản? ',
-                      style: TextStyle(color: AppColors.textSecondary),
+                    Text(
+                      AppLocalizations.of(context).translate('no_account'),
+                      style: const TextStyle(color: AppColors.textSecondary),
                     ),
                     GestureDetector(
                       onTap: () => Navigator.pushNamed(context, AppRoutes.register),
-                      child: const Text(
-                        'Đăng ký ngay',
+                      child: Text(
+                        AppLocalizations.of(context).translate('register'),
                         style: TextStyle(
                           color: AppColors.primary,
                           fontWeight: FontWeight.w600,

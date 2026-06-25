@@ -12,4 +12,5 @@ class AppRoutes {
   static const String adminUsers = '/admin/users';
   static const String adminGroups = '/admin/groups';
   static const String friends = '/friends';
+  static const String joinGroup = '/join-group';
 }

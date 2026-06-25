@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_routes.dart';
+import '../../../core/utils/app_localizations.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'admin_stats_tab.dart';
 import 'admin_users_tab.dart';
@@ -19,13 +20,18 @@ class AdminDashboardScreen extends StatefulWidget {
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _currentIndex = 0;
 
-  static const _titles = ['Thống kê hệ thống', 'Quản lý người dùng', 'Quản lý nhóm chat', 'Nhật ký'];
-
   final _pages = const [
     AdminStatsTab(),
     AdminUsersTab(),
     AdminGroupsTab(),
     AdminActivityLogTab(),
+  ];
+
+  List<String> _getTitles(BuildContext context) => [
+    AppLocalizations.of(context).translate('admin_stats'),
+    AppLocalizations.of(context).translate('admin_users'),
+    AppLocalizations.of(context).translate('admin_groups'),
+    AppLocalizations.of(context).translate('admin_activity_log'),
   ];
 
   Future<void> _logout() async {
@@ -36,14 +42,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final titles = _getTitles(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
-        title: Text(_titles[_currentIndex], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: Text(titles[_currentIndex], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         actions: [
-          IconButton(icon: const Icon(Icons.logout), tooltip: 'Đăng xuất', onPressed: _logout),
+          IconButton(icon: const Icon(Icons.logout), tooltip: AppLocalizations.of(context).translate('logout'), onPressed: _logout),
         ],
       ),
       body: IndexedStack(index: _currentIndex, children: _pages),

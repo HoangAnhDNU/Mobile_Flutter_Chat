@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/socket_service.dart';
+import '../../../core/utils/app_localizations.dart';
 import 'admin_user_form_screen.dart';
 
 /// Tab Quản lý người dùng.
@@ -80,10 +81,10 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
         ? await ApiService.adminUnlockUser(user['id'])
         : await ApiService.adminLockUser(user['id']);
     if (ok) {
-      _showSnack(locked ? 'Đã mở khóa tài khoản' : 'Đã khóa tài khoản');
+      _showSnack(locked ? AppLocalizations.of(context).translate('user_unlocked') : AppLocalizations.of(context).translate('user_locked'));
       loadUsers(query: _searchController.text);
     } else {
-      _showSnack('Thao tác thất bại', error: true);
+      _showSnack(AppLocalizations.of(context).translate('action_failed'), error: true);
     }
   }
 
@@ -91,13 +92,13 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Xóa người dùng'),
-        content: Text('Bạn có chắc muốn xóa "${user['display_name']}"? Toàn bộ dữ liệu liên quan sẽ bị xóa.'),
+        title: Text(AppLocalizations.of(context).translate('delete_user')),
+        content: Text(AppLocalizations.of(context).tr('delete_user_confirm', params: {'name': user['display_name']})),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Xóa', style: TextStyle(color: AppColors.error)),
+            child: Text(AppLocalizations.of(context).translate('delete'), style: const TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -105,10 +106,10 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
     if (confirm != true) return;
     final ok = await ApiService.adminDeleteUser(user['id']);
     if (ok) {
-      _showSnack('Đã xóa người dùng');
+      _showSnack(AppLocalizations.of(context).translate('user_deleted'));
       loadUsers(query: _searchController.text);
     } else {
-      _showSnack('Không thể xóa người dùng này', error: true);
+      _showSnack(AppLocalizations.of(context).translate('cannot_delete_user'), error: true);
     }
   }
 
@@ -117,25 +118,25 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
     final newPass = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Đặt lại mật khẩu'),
+        title: Text(AppLocalizations.of(context).translate('reset_password')),
         content: TextField(
           controller: controller,
           obscureText: true,
-          decoration: const InputDecoration(labelText: 'Mật khẩu mới (tối thiểu 6 ký tự)'),
+          decoration: InputDecoration(labelText: AppLocalizations.of(context).translate('new_password_min')),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
-          TextButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text('Lưu')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, controller.text), child: Text(AppLocalizations.of(context).translate('save'))),
         ],
       ),
     );
     if (newPass == null) return;
     if (newPass.length < 6) {
-      _showSnack('Mật khẩu phải từ 6 ký tự', error: true);
+      _showSnack(AppLocalizations.of(context).translate('password_min_6'), error: true);
       return;
     }
     final ok = await ApiService.adminResetPassword(user['id'], newPass);
-    _showSnack(ok ? 'Đã đặt lại mật khẩu' : 'Thất bại', error: !ok);
+    _showSnack(ok ? AppLocalizations.of(context).translate('password_reset') : AppLocalizations.of(context).translate('action_failed'), error: !ok);
   }
 
   @override
@@ -148,7 +149,7 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
         foregroundColor: Colors.white,
         onPressed: _openCreate,
         icon: const Icon(Icons.person_add),
-        label: const Text('Thêm'),
+        label: Text(AppLocalizations.of(context).translate('add')),
       ),
       body: Column(
         children: [
@@ -157,7 +158,7 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: 'Tìm theo tên hoặc email...',
+                hintText: AppLocalizations.of(context).translate('search_users'),
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
                 fillColor: AppColors.surface,
@@ -174,7 +175,7 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _users.isEmpty
-                    ? const Center(child: Text('Không có người dùng', style: TextStyle(color: AppColors.textSecondary)))
+                    ? Center(child: Text(AppLocalizations.of(context).translate('no_users'), style: const TextStyle(color: AppColors.textSecondary)))
                     : RefreshIndicator(
                         onRefresh: () => loadUsers(query: _searchController.text),
                         child: ListView.separated(
@@ -224,7 +225,7 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
           ],
         ],
       ),
-      subtitle: Text('${user['email'] ?? ''}${online ? ' • đang online' : ''}', style: const TextStyle(fontSize: 12)),
+      subtitle: Text('${user['email'] ?? ''}${online ? ' • ${AppLocalizations.of(context).translate("online")}' : ''}', style: const TextStyle(fontSize: 12)),
       trailing: PopupMenuButton<String>(
         onSelected: (action) {
           switch (action) {
@@ -243,10 +244,10 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
           }
         },
         itemBuilder: (ctx) => [
-          const PopupMenuItem(value: 'edit', child: Text('Chỉnh sửa thông tin')),
-          PopupMenuItem(value: 'lock', child: Text(locked ? 'Mở khóa' : 'Khóa tài khoản')),
-          const PopupMenuItem(value: 'reset', child: Text('Đặt lại mật khẩu')),
-          const PopupMenuItem(value: 'delete', child: Text('Xóa', style: TextStyle(color: AppColors.error))),
+          PopupMenuItem(value: 'edit', child: Text(AppLocalizations.of(context).translate('edit_user_info'))),
+          PopupMenuItem(value: 'lock', child: Text(locked ? AppLocalizations.of(context).translate('unlock') : AppLocalizations.of(context).translate('lock_user'))),
+          PopupMenuItem(value: 'reset', child: Text(AppLocalizations.of(context).translate('reset_password'))),
+          PopupMenuItem(value: 'delete', child: Text(AppLocalizations.of(context).translate('delete'), style: const TextStyle(color: AppColors.error))),
         ],
       ),
     );

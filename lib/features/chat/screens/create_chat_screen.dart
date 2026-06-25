@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_config.dart';
 import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/app_localizations.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class CreateChatScreen extends StatefulWidget {
@@ -22,6 +23,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
   bool _isGroupMode = false;
   final Set<String> _selectedUserIds = {};
   final Map<String, String> _selectedUserNames = {};
+  final Map<String, String> _selectedUserAvatars = {};
 
   @override
   void initState() {
@@ -73,7 +75,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
   Future<void> _createGroup() async {
     if (_selectedUserIds.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Chọn ít nhất 2 người để tạo nhóm')),
+        SnackBar(content: Text(AppLocalizations.of(context).translate('select_min_2'))),
       );
       return;
     }
@@ -82,17 +84,17 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
     final groupName = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Tạo nhóm'),
+        title: Text(AppLocalizations.of(context).translate('create_group')),
         content: TextField(
           controller: groupNameController,
-          decoration: const InputDecoration(hintText: 'Tên nhóm'),
+          decoration: InputDecoration(hintText: AppLocalizations.of(context).translate('group_name')),
           autofocus: true,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context).translate('cancel'))),
           TextButton(
             onPressed: () => Navigator.pop(context, groupNameController.text.trim()),
-            child: const Text('Tạo'),
+            child: Text(AppLocalizations.of(context).translate('create')),
           ),
         ],
       ),
@@ -115,7 +117,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.chatDetail,
-      arguments: {'chatId': result['chatId'], 'chatName': groupName},
+      arguments: {'chatId': result['chatId'], 'chatName': groupName, 'isGroup': true},
     );
   }
 
@@ -123,7 +125,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isGroupMode ? 'Tạo nhóm (${_selectedUserIds.length})' : 'Chat mới'),
+        title: Text(_isGroupMode ? AppLocalizations.of(context).tr('create_group_count', params: {'count': _selectedUserIds.length}) : AppLocalizations.of(context).translate('new_chat')),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -132,6 +134,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
                 _isGroupMode = false;
                 _selectedUserIds.clear();
                 _selectedUserNames.clear();
+                _selectedUserAvatars.clear();
               });
             } else {
               Navigator.pop(context);
@@ -142,7 +145,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
           if (!_isGroupMode)
             TextButton(
               onPressed: () => setState(() => _isGroupMode = true),
-              child: const Text('Tạo nhóm'),
+              child: Text(AppLocalizations.of(context).translate('create_group')),
             ),
           if (_isGroupMode && _selectedUserIds.length >= 2)
             IconButton(
@@ -169,7 +172,12 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
                             CircleAvatar(
                               radius: 22,
                               backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                              child: Text(e.value[0].toUpperCase(), style: const TextStyle(color: AppColors.primary)),
+                              backgroundImage: (_selectedUserAvatars[e.key] ?? '').isNotEmpty
+                                  ? _getAvatarImage(_selectedUserAvatars[e.key]!)
+                                  : null,
+                              child: (_selectedUserAvatars[e.key] ?? '').isEmpty
+                                  ? Text(e.value[0].toUpperCase(), style: const TextStyle(color: AppColors.primary))
+                                  : null,
                             ),
                             Positioned(
                               top: -2,
@@ -178,6 +186,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
                                 onTap: () => setState(() {
                                   _selectedUserIds.remove(e.key);
                                   _selectedUserNames.remove(e.key);
+                                  _selectedUserAvatars.remove(e.key);
                                 }),
                                 child: const CircleAvatar(
                                   radius: 10,
@@ -204,7 +213,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: 'Tìm kiếm theo tên hoặc email...',
+                hintText: AppLocalizations.of(context).translate('search_name_email'),
                 prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -228,7 +237,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
     }
 
     if (_users.isEmpty) {
-      return const Center(child: Text('Không tìm thấy người dùng'));
+      return Center(child: Text(AppLocalizations.of(context).translate('no_users_found')));
     }
 
     final authProvider = context.read<AuthProvider>();
@@ -245,7 +254,7 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
     }).toList();
 
     if (filteredUsers.isEmpty) {
-      return const Center(child: Text('Không tìm thấy người dùng'));
+      return Center(child: Text(AppLocalizations.of(context).translate('no_users_found')));
     }
 
     return ListView.separated(
@@ -279,9 +288,11 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
                     if (checked == true) {
                       _selectedUserIds.add(userId);
                       _selectedUserNames[userId] = displayName;
+                      _selectedUserAvatars[userId] = avatarUrl;
                     } else {
                       _selectedUserIds.remove(userId);
                       _selectedUserNames.remove(userId);
+                      _selectedUserAvatars.remove(userId);
                     }
                   }),
                   activeColor: AppColors.primary,
@@ -292,9 +303,11 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
                     if (_selectedUserIds.contains(userId)) {
                       _selectedUserIds.remove(userId);
                       _selectedUserNames.remove(userId);
+                      _selectedUserAvatars.remove(userId);
                     } else {
                       _selectedUserIds.add(userId);
                       _selectedUserNames[userId] = displayName;
+                      _selectedUserAvatars[userId] = avatarUrl;
                     }
                   })
               : () => _createChat(userId, displayName),

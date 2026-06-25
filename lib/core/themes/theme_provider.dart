@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ThemeProvider extends ChangeNotifier {
   bool _isDarkMode = false;
   Locale _locale = const Locale('vi');
-  double _fontSize = 15.0;
+  double _fontSize = 16.0;
 
   bool get isDarkMode => _isDarkMode;
   Locale get locale => _locale;
@@ -21,7 +21,7 @@ class ThemeProvider extends ChangeNotifier {
     _isDarkMode = prefs.getBool('darkMode') ?? false;
     final lang = prefs.getString('language') ?? 'vi';
     _locale = Locale(lang);
-    _fontSize = prefs.getDouble('fontSize') ?? 15.0;
+    _fontSize = prefs.getDouble('fontSize') ?? 16.0;
     notifyListeners();
   }
 

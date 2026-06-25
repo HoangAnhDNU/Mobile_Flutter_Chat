@@ -83,7 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Đã cập nhật tên'), backgroundColor: AppColors.success),
+      SnackBar(content: Text(AppLocalizations.of(context).translate('name_updated')), backgroundColor: AppColors.success),
     );
   }
 
@@ -115,11 +115,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Đăng xuất'),
-        content: const Text('Bạn có chắc muốn đăng xuất?'),
+        title: Text(AppLocalizations.of(context).translate('logout')),
+        content: Text(AppLocalizations.of(context).translate('logout_confirm')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Hủy')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Đăng xuất', style: TextStyle(color: AppColors.error))),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppLocalizations.of(context).translate('logout'), style: const TextStyle(color: AppColors.error))),
         ],
       ),
     );
@@ -140,48 +140,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Đổi mật khẩu'),
+        title: Text(AppLocalizations.of(context).translate('change_password')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: oldC,
               obscureText: true,
-              decoration: const InputDecoration(labelText: 'Mật khẩu hiện tại'),
+              decoration: InputDecoration(labelText: AppLocalizations.of(context).translate('current_password')),
             ),
             TextField(
               controller: newC,
               obscureText: true,
-              decoration: const InputDecoration(labelText: 'Mật khẩu mới (≥6 ký tự)'),
+              decoration: InputDecoration(labelText: AppLocalizations.of(context).translate('new_password')),
             ),
             TextField(
               controller: confirmC,
               obscureText: true,
-              decoration: const InputDecoration(labelText: 'Xác nhận mật khẩu mới'),
+              decoration: InputDecoration(labelText: AppLocalizations.of(context).translate('confirm_new_password')),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Cập nhật')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppLocalizations.of(context).translate('cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(AppLocalizations.of(context).translate('update'))),
         ],
       ),
     );
 
     if (result != true) return;
     if (newC.text.length < 6) {
-      _showSnack('Mật khẩu mới phải từ 6 ký tự', error: true);
+      _showSnack(AppLocalizations.of(context).translate('password_min_6'), error: true);
       return;
     }
     if (newC.text != confirmC.text) {
-      _showSnack('Xác nhận mật khẩu không khớp', error: true);
+      _showSnack(AppLocalizations.of(context).translate('password_mismatch'), error: true);
       return;
     }
     final res = await ApiService.changePassword(oldC.text, newC.text);
     if (res['ok'] == true) {
-      _showSnack(res['message']?.toString() ?? 'Đổi mật khẩu thành công');
+      _showSnack(res['message']?.toString() ?? AppLocalizations.of(context).translate('password_changed'));
     } else {
-      _showSnack(res['error']?.toString() ?? 'Đổi mật khẩu thất bại', error: true);
+      _showSnack(res['error']?.toString() ?? AppLocalizations.of(context).translate('password_change_failed'), error: true);
     }
   }
 
@@ -268,7 +268,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   SwitchListTile(
                     title: Text(l10n.translate('notifications')),
-                    subtitle: const Text('Nhận thông báo tin nhắn mới'),
+                    subtitle: Text(l10n.translate('notifications_subtitle')),
                     value: _notificationsEnabled,
                     onChanged: _toggleNotifications,
                     activeTrackColor: AppColors.primary,
@@ -276,7 +276,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const Divider(height: 1),
                   SwitchListTile(
                     title: Text(l10n.translate('dark_mode')),
-                    subtitle: const Text('Giao diện tối cho mắt'),
+                    subtitle: Text(l10n.translate('dark_mode_subtitle')),
                     value: context.watch<ThemeProvider>().isDarkMode,
                     onChanged: (value) => context.read<ThemeProvider>().toggleTheme(),
                     activeTrackColor: AppColors.primary,
@@ -294,7 +294,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               ListTile(
-                                title: const Text('Tiếng Việt'),
+                                title: Text(l10n.translate('vietnamese')),
                                 trailing: context.read<ThemeProvider>().locale.languageCode == 'vi' ? const Icon(Icons.check, color: AppColors.primary) : null,
                                 onTap: () {
                                   context.read<ThemeProvider>().setLanguage('vi');
@@ -302,7 +302,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 },
                               ),
                               ListTile(
-                                title: const Text('English'),
+                                title: Text(l10n.translate('english')),
                                 trailing: context.read<ThemeProvider>().locale.languageCode == 'en' ? const Icon(Icons.check, color: AppColors.primary) : null,
                                 onTap: () {
                                   context.read<ThemeProvider>().setLanguage('en');
@@ -318,38 +318,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.lock_outline, size: 20),
-                    title: const Text('Đổi mật khẩu'),
-                    subtitle: const Text('Cập nhật mật khẩu đăng nhập'),
+                    title: Text(l10n.translate('change_password')),
+                    subtitle: Text(l10n.translate('change_password_subtitle')),
                     trailing: const Icon(Icons.chevron_right, size: 20),
                     onTap: _showChangePasswordDialog,
                   ),
                   const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.shield_outlined, size: 20),
-                    title: const Text('Quyền riêng tư'),
-                    subtitle: const Text('Last seen, ảnh đại diện, tin nhắn tự xóa'),
+                    title: Text(l10n.translate('privacy')),
+                    subtitle: Text(l10n.translate('privacy_subtitle')),
                     trailing: const Icon(Icons.chevron_right, size: 20),
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacySettingsScreen())),
                   ),
                   const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.block, size: 20),
-                    title: const Text('Người dùng đã chặn'),
+                    title: Text(l10n.translate('blocked_users')),
                     trailing: const Icon(Icons.chevron_right, size: 20),
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedUsersScreen())),
                   ),
                   const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.text_fields, size: 20),
-                    title: const Text('Cỡ chữ'),
+                    title: Text(l10n.translate('font_size')),
                     subtitle: Text('${context.watch<ThemeProvider>().fontSize.toInt()}'),
                     trailing: SizedBox(
                       width: 150,
                       child: Slider(
                         value: context.watch<ThemeProvider>().fontSize,
-                        min: 12,
-                        max: 22,
-                        divisions: 5,
+                        min: 13,
+                        max: 24,
+                        divisions: 11,
                         onChanged: (v) => context.read<ThemeProvider>().setFontSize(v),
                       ),
                     ),

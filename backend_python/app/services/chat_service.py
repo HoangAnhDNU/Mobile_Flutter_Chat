@@ -30,7 +30,7 @@ class ChatService:
             .where(ChatParticipant.user_id == user_id)
             .options(
                 selectinload(Chat.participants).selectinload(ChatParticipant.user),
-                selectinload(Chat.messages)
+                selectinload(Chat.messages).selectinload(Message.sender)
             )
             .order_by(desc(Chat.updated_at))
             .offset(offset)
@@ -68,7 +68,8 @@ class ChatService:
                 )
             )
             .options(
-                selectinload(Chat.participants).selectinload(ChatParticipant.user)
+                selectinload(Chat.participants).selectinload(ChatParticipant.user),
+                selectinload(Chat.messages).selectinload(Message.sender),
             )
         )
         
@@ -132,14 +133,14 @@ class ChatService:
             db.add(participant)
 
         await db.commit()
-        await db.refresh(chat, attribute_names=['participants'])
 
-        # Eager load participants and their users for the new chat
-        await db.refresh(chat, attribute_names=['participants'])
-        for p in chat.participants:
-            await db.refresh(p, attribute_names=['user'])
-
-        return chat
+        # Re-query with eager loading to avoid refresh expiry cycle
+        result = await db.execute(
+            select(Chat)
+            .options(selectinload(Chat.participants).selectinload(ChatParticipant.user))
+            .where(Chat.id == chat.id)
+        )
+        return result.scalar_one()
     
     @staticmethod
     async def create_group_chat(

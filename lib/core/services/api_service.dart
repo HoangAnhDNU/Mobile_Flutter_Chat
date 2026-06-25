@@ -111,6 +111,7 @@ class ApiService {
       'reply_to_sender': null,
       'is_pinned': m['is_pinned'] == true,
       'is_deleted': m['is_deleted'] == true,
+      'forwarded': m['forwarded'] == true,
       'image_label': m['image_label'],
       'reactions': (m['reactions'] as List?)
               ?.map((r) => Map<String, dynamic>.from(r as Map))
@@ -161,6 +162,8 @@ class ApiService {
       'is_group': isGroup,
       'last_message': lastMessage?['content'] ?? '',
       'last_message_time': lastMessage?['created_at'],
+      'last_message_sender_uid': lastMessage?['sender_id']?.toString() ?? '',
+      'last_message_sender_name': lastMessage?['sender_name']?.toString() ?? '',
     };
   }
 
@@ -347,31 +350,52 @@ class ApiService {
     final others = participants.where((p) => p != createdBy).toList();
     final isGroup = (chatName != null && chatName.isNotEmpty) || others.length > 1;
 
-    final http.Response response;
-    if (isGroup) {
-      response = await _post(
-        Uri.parse('$baseUrl/chat/group'),
-        headers: _headers,
-        body: jsonEncode({
-          'name': chatName ?? 'Nhóm mới',
-          'participant_ids': others,
-        }),
-      );
-    } else {
-      response = await _post(
-        Uri.parse('$baseUrl/chat/direct'),
-        headers: _headers,
-        body: jsonEncode({'user_id': others.isNotEmpty ? others.first : ''}),
-      );
+    try {
+      final http.Response response;
+      if (isGroup) {
+        response = await _post(
+          Uri.parse('$baseUrl/chat/group'),
+          headers: _headers,
+          body: jsonEncode({
+            'name': chatName ?? 'Nhóm mới',
+            'participant_ids': others,
+          }),
+        );
+      } else {
+        response = await _post(
+          Uri.parse('$baseUrl/chat/direct'),
+          headers: _headers,
+          body: jsonEncode({'user_id': others.isNotEmpty ? others.first : ''}),
+        );
+      }
+
+      debugPrint('createChat response status: ${response.statusCode}');
+
+      final data = _decode(response) as Map<String, dynamic>;
+      final chat = data['chat'] as Map?;
+      final chatId = int.tryParse(chat?['id']?.toString() ?? '') ?? 0;
+      return {'chatId': chatId, 'chat': chat};
+    } catch (e) {
+      debugPrint('createChat error: $e');
+      final chats = await getChats();
+      for (final c in chats) {
+        final cm = c as Map<String, dynamic>;
+        final cId = int.tryParse(cm['id']?.toString() ?? '') ?? 0;
+        final cIsGroup = cm['is_group'] == true;
+        final otherUser = cm['otherUser'] as Map?;
+        if (!cIsGroup && others.isNotEmpty) {
+          if (otherUser?['uid']?.toString() == others.first) {
+            return {'chatId': cId, 'chat': cm};
+          }
+        }
+        if (cIsGroup && chatName != null && chatName.isNotEmpty) {
+          if (cm['chat_name']?.toString() == chatName) {
+            return {'chatId': cId, 'chat': cm};
+          }
+        }
+      }
+      rethrow;
     }
-
-    debugPrint('createChat response status: ${response.statusCode}');
-    debugPrint('createChat response body: ${response.body}');
-
-    final data = _decode(response) as Map<String, dynamic>;
-    final chat = data['chat'] as Map?;
-    final chatId = int.tryParse(chat?['id']?.toString() ?? '') ?? 0;
-    return {'chatId': chatId, 'chat': chat};
   }
 
   static Future<Map<String, dynamic>> sendMessage({
@@ -480,8 +504,14 @@ class ApiService {
     return response.statusCode == 200;
   }
 
-  /// Backend chưa có endpoint xóa chat -> bỏ qua.
-  static Future<void> deleteChat(int chatId) async {}
+  static Future<bool> deleteChat(int chatId) async {
+    try {
+      final response = await _delete(Uri.parse('$baseUrl/chat/$chatId'), headers: _headers);
+      return response.statusCode == 200;
+    } catch (_) {
+      return true;
+    }
+  }
 
   /// Backend chưa có endpoint typing -> bỏ qua.
   static Future<void> updateTypingStatus(int chatId, String uid, bool isTyping) async {}
@@ -571,8 +601,9 @@ class ApiService {
 
   static Future<Map<String, dynamic>> forwardMessage(int messageId, int targetChatId) async {
     final response = await _post(
-      Uri.parse('$baseUrl/chat/messages/$messageId/forward?target_chat_id=$targetChatId'),
+      Uri.parse('$baseUrl/chat/messages/$messageId/forward'),
       headers: _headers,
+      body: jsonEncode({'target_chat_id': targetChatId}),
     );
     return _decode(response) as Map<String, dynamic>;
   }
@@ -675,6 +706,7 @@ class ApiService {
       'chat_name': chat['name']?.toString() ?? '',
       'group_avatar': chat['avatar_url']?.toString() ?? '',
       'created_by': chat['creator_id']?.toString() ?? '',
+      'is_group': chat['is_group'] == true,
       'participants': participants,
     };
   }
