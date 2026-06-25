@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -11,7 +12,7 @@ class Settings(BaseSettings):
     db_port: int = 3306
     db_user: str = "root"
     db_password: str = "Hintingd67760105"
-    db_name: str = "mobile_chat"
+    db_name: str = "mobile_flutter_chat"
     
     # JWT
     jwt_secret_key: str = "your-super-secret-key"
@@ -37,7 +38,7 @@ class Settings(BaseSettings):
         return f"mysql+pymysql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
     
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).parent.parent / ".env")
         env_file_encoding = "utf-8"
 
 @lru_cache()

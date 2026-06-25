@@ -66,3 +66,11 @@ app.*.map.json
 
 # Environment files
 .env
+
+# Playwright
+/playwright-report/
+/playwright-results/
+/test-results/
+/.playwright/
+/playwright.config.ts
+/e2e/
