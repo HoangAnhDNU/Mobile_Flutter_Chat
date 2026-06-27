@@ -7,6 +7,7 @@ import 'core/services/api_service.dart';
 import 'core/themes/app_theme.dart';
 import 'core/themes/theme_provider.dart';
 import 'core/utils/app_localizations.dart';
+import 'core/widgets/call_handler.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/auth/screens/splash_screen.dart';
 import 'features/auth/screens/login_screen.dart';
@@ -36,6 +37,8 @@ void main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
@@ -46,16 +49,20 @@ class MyApp extends StatelessWidget {
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
           return MaterialApp(
+            navigatorKey: navigatorKey,
             title: 'Flutter Chat',
             debugShowCheckedModeBanner: false,
             theme: themeProvider.isDarkMode ? AppTheme.darkTheme : AppTheme.lightTheme,
             builder: (context, child) {
               final scale = themeProvider.fontSize / 16.0;
-              return MediaQuery(
-                data: MediaQuery.of(context).copyWith(
-                  textScaler: TextScaler.linear(scale),
+              return CallHandler(
+                navigatorKey: navigatorKey,
+                child: MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    textScaler: TextScaler.linear(scale),
+                  ),
+                  child: child!,
                 ),
-                child: child!,
               );
             },
             initialRoute: AppRoutes.splash,

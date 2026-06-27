@@ -169,6 +169,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     if (result != true) return;
+    if (!mounted) return;
     if (newC.text.length < 6) {
       _showSnack(AppLocalizations.of(context).translate('password_min_6'), error: true);
       return;
@@ -178,6 +179,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
     final res = await ApiService.changePassword(oldC.text, newC.text);
+    if (!mounted) return;
     if (res['ok'] == true) {
       _showSnack(res['message']?.toString() ?? AppLocalizations.of(context).translate('password_changed'));
     } else {

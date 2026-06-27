@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -11,6 +11,7 @@ class BlockedUser(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     blocker_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     blocked_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    report_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     blocker = relationship("User", foreign_keys=[blocker_id])

@@ -56,8 +56,8 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
     try {
       final result = await ApiService.joinViaInvite(code);
       final chatId = int.tryParse(result['chat_id']?.toString() ?? '') ?? 0;
-      final chatName = result['chat_name']?.toString() ?? AppLocalizations.of(context).translate('group');
       if (!mounted) return;
+      final chatName = result['chat_name']?.toString() ?? AppLocalizations.of(context).translate('group');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context).tr('joined_group', params: {'name': chatName}))),
       );

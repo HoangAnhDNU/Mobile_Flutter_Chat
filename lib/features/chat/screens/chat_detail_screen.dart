@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -18,6 +17,7 @@ import '../../../core/utils/app_localizations.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../widgets/message_bubble.dart';
 import 'camera_capture_screen.dart';
+import 'call_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final int chatId;
@@ -44,6 +44,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   bool _isLoading = false;
   bool _isSearching = false;
   bool _showMoreActions = false;
+  int _currentPage = 1;
+  bool _hasMoreMessages = true;
+  bool _isLoadingMore = false;
+  final Set<String> _newMessageIds = {};
 
   String? _editingMessageId;
   bool _isEditing = false;
@@ -65,6 +69,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   bool _peerOnline = false;
   String? _peerUid;
   bool _peerBlocked = false;
+  bool _theyBlockedMe = false;
   StreamSubscription<Map<String, dynamic>>? _presenceSubscription;
   Timer? _typingClearTimer;
   late final AnimationController _typingController;
@@ -118,6 +123,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       _loadPinned();
       _loadMuteStatus();
       _loadChatInfo();
+      _scrollController.addListener(() {
+        if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 &&
+            !_isLoadingMore && _hasMoreMessages) {
+          _loadMoreMessages();
+        }
+      });
     }
   }
 
@@ -129,23 +140,65 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     SocketService.instance.connect(authProvider.uid!);
     SocketService.instance.joinChat(_chatId);
 
-    _messageSubscription ??= SocketService.instance.onMessage.listen((event) async {
+    _messageSubscription ??= SocketService.instance.onMessage.listen((event) {
       if (!mounted) return;
-      if (event['chatId'] == _chatId) {
-        await _loadMessages(silent: true);
-        _scrollToLatest();
+      if (event['chatId']?.toString() == _chatId.toString()) {
+        final senderUid = event['senderUid']?.toString();
+        final isFromOther = senderUid != authProvider.uid;
 
-        final isFromOther = event['senderUid'] != authProvider.uid;
+        final msgData = event['message'] as Map<String, dynamic>?;
+        final msgId = (msgData?['id'] ?? event['id'] ?? DateTime.now().millisecondsSinceEpoch).toString();
+
+        final newMsg = <String, dynamic>{
+          'id': msgData?['id'] ?? event['id'] ?? DateTime.now().millisecondsSinceEpoch,
+          'text': msgData?['content'] ?? event['text'] ?? '',
+          'sender_uid': senderUid ?? '',
+          'sender_name': event['senderName'] ?? msgData?['sender_name'] ?? '',
+          'sender_avatar': msgData?['sender_avatar'] ?? event['senderAvatar'],
+          'created_at': msgData?['created_at'] ?? event['createdAt'] ?? DateTime.now().toIso8601String(),
+          'is_edited': msgData?['edited_at'] != null,
+          'message_type': msgData?['type'] ?? event['messageType'] ?? 'text',
+          'imageUrl': msgData?['media_url'] ?? (event['imageBase64'] != null
+              ? (event['imageBase64'].toString().startsWith('data:')
+                  ? event['imageBase64']
+                  : 'data:image/png;base64,${event['imageBase64']}')
+              : null),
+          'image_base64': event['imageBase64'],
+          'voice_duration': msgData?['voice_duration'] ?? event['voiceDuration'] ?? 0,
+          'delivery_status': msgData?['status'] ?? 'sent',
+          'reply_to_text': msgData?['reply_to_text'],
+          'reply_to_sender': msgData?['reply_to_sender'],
+          'is_pinned': msgData?['is_pinned'] == true,
+          'is_deleted': msgData?['is_deleted'] == true,
+          'forwarded': msgData?['forwarded'] == true,
+          'image_label': msgData?['image_label'],
+          'reactions': (msgData?['reactions'] as List?)
+              ?.map((r) => Map<String, dynamic>.from(r as Map))
+              .toList() ?? [],
+        };
+
+        final exists = _messages.any((m) {
+          final existing = m as Map<String, dynamic>;
+          return existing['id'].toString() == msgId;
+        });
+
+        if (!exists) {
+          _newMessageIds.add(msgId);
+          setState(() {
+            _messages.insert(0, newMsg);
+          });
+          _scrollToLatest();
+        }
+
         if (isFromOther) {
           SystemSound.play(SystemSoundType.alert);
-          _showRealtimeNotice(event['senderName']?.toString());
         }
       }
     });
 
     _typingSubscription ??= SocketService.instance.onTyping.listen((event) {
       if (!mounted) return;
-      if (event['chatId'] == _chatId) {
+      if (event['chatId']?.toString() == _chatId.toString()) {
         final uid = event['uid']?.toString();
         final isTyping = event['isTyping'] == true;
         if (uid != null && uid != authProvider.uid) {
@@ -174,26 +227,72 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       }
     });
 
-    // Reaction thay đổi realtime -> nạp lại tin nhắn (im lặng, không nhấp nháy).
+    // Reaction thay đổi realtime -> cập nhật trực tiếp tin nhắn.
     _reactionSubscription ??= SocketService.instance.onReaction.listen((event) {
       if (!mounted) return;
-      if (event['chatId'] == _chatId) _loadMessages(silent: true);
+      if (event['chatId']?.toString() == _chatId.toString()) {
+        final msgData = event['message'] as Map<String, dynamic>?;
+        final msgId = msgData?['id']?.toString();
+        if (msgId == null) return;
+        setState(() {
+          final idx = _messages.indexWhere((m) {
+            final msg = m as Map<String, dynamic>;
+            return msg['id'].toString() == msgId;
+          });
+          if (idx != -1) {
+            final msg = Map<String, dynamic>.from(_messages[idx] as Map);
+            msg['reactions'] = (msgData!['reactions'] as List?)
+                ?.map((r) => Map<String, dynamic>.from(r as Map))
+                .toList() ?? msg['reactions'];
+            _messages[idx] = msg;
+          }
+        });
+      }
     });
 
-    // Tin nhắn bị thu hồi realtime -> nạp lại + cập nhật ghim.
+    // Tin nhắn bị thu hồi realtime -> cập nhật trực tiếp + cập nhật ghim.
     _deleteSubscription ??= SocketService.instance.onDelete.listen((event) {
       if (!mounted) return;
-      if (event['chatId'] == _chatId) {
-        _loadMessages(silent: true);
+      if (event['chatId']?.toString() == _chatId.toString()) {
+        final messageId = event['messageId']?.toString();
+        if (messageId == null) return;
+        setState(() {
+          final idx = _messages.indexWhere((m) {
+            final msg = m as Map<String, dynamic>;
+            return msg['id'].toString() == messageId;
+          });
+          if (idx != -1) {
+            final msg = Map<String, dynamic>.from(_messages[idx] as Map);
+            msg['is_deleted'] = true;
+            msg['text'] = '';
+            msg['imageUrl'] = null;
+            msg['image_base64'] = null;
+            msg['image_label'] = null;
+            _messages[idx] = msg;
+          }
+        });
         _loadPinned();
       }
     });
 
-    // Ghim/bỏ ghim realtime -> cập nhật banner ghim + tin nhắn.
+    // Ghim/bỏ ghim realtime -> cập nhật trực tiếp + cập nhật banner ghim.
     _pinSubscription ??= SocketService.instance.onPin.listen((event) {
       if (!mounted) return;
-      if (event['chatId'] == _chatId) {
-        _loadMessages(silent: true);
+      if (event['chatId']?.toString() == _chatId.toString()) {
+        final messageId = event['messageId']?.toString();
+        final isPinned = event['isPinned'] == true;
+        if (messageId == null) return;
+        setState(() {
+          final idx = _messages.indexWhere((m) {
+            final msg = m as Map<String, dynamic>;
+            return msg['id'].toString() == messageId;
+          });
+          if (idx != -1) {
+            final msg = Map<String, dynamic>.from(_messages[idx] as Map);
+            msg['is_pinned'] = isPinned;
+            _messages[idx] = msg;
+          }
+        });
         _loadPinned();
       }
     });
@@ -202,7 +301,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       if (!mounted) return;
       final uid = event['uid']?.toString();
       final isOnline = event['is_online'] == true;
-      debugPrint('[PRESENCE] uid=$uid isOnline=$isOnline peerUid=$_peerUid cache=${SocketService.instance.presenceCache}');
       if (uid != null && uid == _peerUid) {
         setState(() => _peerOnline = isOnline);
       }
@@ -222,22 +320,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       final myUid = _myUid;
       final peer = participants.where((p) {
         final m = p as Map<String, dynamic>;
-        return m['uid']?.toString() != myUid;
+        return m['id']?.toString() != myUid;
       }).toList();
       setState(() {
         _isGroup = info['is_group'] == true;
         if (peer.isNotEmpty) {
           final p = peer.first as Map<String, dynamic>;
-          _peerUid = p['uid']?.toString();
+          _peerUid = p['id']?.toString();
           final apiOnline = p['is_online'] == true;
           final cachedOnline = _peerUid != null ? SocketService.instance.presenceCache[_peerUid] : null;
-          debugPrint('[CHAT_INFO] peerUid=$_peerUid apiOnline=$apiOnline cachedOnline=$cachedOnline presenceCache=${SocketService.instance.presenceCache}');
           if (cachedOnline == true) {
             _peerOnline = true;
           } else if (apiOnline || !_peerOnline) {
             _peerOnline = apiOnline;
           }
-          debugPrint('[CHAT_INFO] final _peerOnline=$_peerOnline');
           if (!_isGroup) {
             final peerAvatar = p['avatar_url']?.toString() ?? '';
             final peerName = p['display_name']?.toString() ?? '';
@@ -252,17 +348,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
         }
       });
       if (_peerUid != null) {
-        final blocked = await ApiService.getBlockedUsers();
+        final blockStatus = await ApiService.checkBlockStatus(_peerUid!);
         if (!mounted) return;
-        final isBlocked = blocked.any((b) {
-          final m = b as Map<String, dynamic>;
-          return m['blocked_id']?.toString() == _peerUid;
+        setState(() {
+          _peerBlocked = blockStatus['i_blocked_them'] == true;
+          _theyBlockedMe = blockStatus['they_blocked_me'] == true;
         });
-        setState(() => _peerBlocked = isBlocked);
       }
-    } catch (e) {
-      debugPrint('Error loading chat info: $e');
-    }
+    } catch (_) {}
   }
 
   Future<void> _resolveTypingName() async {
@@ -276,32 +369,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     } catch (_) {
       // Ignore typing name lookup failures and keep generic label.
     }
-  }
-
-  void _showRealtimeNotice(String? senderName) {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.clearSnackBars();
-    final topOffset = MediaQuery.of(context).padding.top + kToolbarHeight + 8;
-    messenger.showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.fromLTRB(12, topOffset, 12, 0),
-        backgroundColor: const Color(0xFFF1F8E9),
-        content: Row(
-          children: [
-            const Icon(Icons.notifications_active_outlined, color: AppColors.success),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                AppLocalizations.of(context).tr('new_message_from', params: {'name': (senderName != null && senderName.isNotEmpty) ? ' $senderName' : ''}),
-                style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-        duration: const Duration(seconds: 2),
-      ),
-    );
   }
 
   void _scrollToLatest() {
@@ -319,22 +386,56 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
 
   Future<void> _loadMessages({bool silent = false}) async {
     if (!silent) setState(() => _isLoading = true);
+    _currentPage = 1;
+    _hasMoreMessages = true;
     try {
-      final messages = await ApiService.getMessages(_chatId);
-      if (mounted) setState(() => _messages = messages);
-    } catch (e) {
-      debugPrint('Error loading messages: $e');
-    }
+      final messages = await ApiService.getMessages(_chatId, page: 1, limit: 30);
+      if (mounted) {
+        setState(() {
+          _messages = messages;
+          if (messages.length < 30) _hasMoreMessages = false;
+        });
+      }
+    } catch (_) {}
     if (mounted && !silent) setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadMoreMessages() async {
+    if (_isLoadingMore || !_hasMoreMessages) return;
+    _isLoadingMore = true;
+
+    final oldCount = _messages.length;
+    final oldMaxScroll = _scrollController.hasClients
+        ? _scrollController.position.maxScrollExtent
+        : 0.0;
+
+    try {
+      final nextPage = _currentPage + 1;
+      final olderMessages = await ApiService.getMessages(_chatId, page: nextPage, limit: 30);
+      if (mounted && olderMessages.isNotEmpty) {
+        setState(() {
+          _messages.addAll(olderMessages);
+          _currentPage = nextPage;
+          if (olderMessages.length < 30) _hasMoreMessages = false;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scrollController.hasClients && oldCount > 0) {
+            final newMaxScroll = _scrollController.position.maxScrollExtent;
+            _scrollController.jumpTo(newMaxScroll - oldMaxScroll);
+          }
+        });
+      } else {
+        _hasMoreMessages = false;
+      }
+    } catch (_) {}
+    _isLoadingMore = false;
   }
 
   Future<void> _loadPinned() async {
     try {
       final pinned = await ApiService.getPinnedMessages(_chatId);
       if (mounted) setState(() => _pinnedMessages = pinned);
-    } catch (e) {
-      debugPrint('Error loading pinned: $e');
-    }
+    } catch (_) {}
   }
 
   @override
@@ -367,49 +468,78 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
 
     _messageController.clear();
 
-    if (_replyingTo != null) {
-      await ApiService.sendReplyMessage(
-        chatId: _chatId,
-        senderUid: authProvider.uid!,
-        senderName: authProvider.displayName ?? 'Unknown',
-        text: text,
-        replyToId: _replyingTo!['id'],
-        replyToText: _replyingTo!['text'] ?? '',
-        replyToSender: _replyingTo!['sender_name'] ?? '',
-      );
-      setState(() => _replyingTo = null);
-    } else {
-      await ApiService.sendMessage(
-        chatId: _chatId,
-        senderUid: authProvider.uid!,
-        senderName: authProvider.displayName ?? 'Unknown',
-        text: text,
-        messageType: 'text',
-      );
+    try {
+      if (_replyingTo != null) {
+        final sentMsg = await ApiService.sendReplyMessage(
+          chatId: _chatId,
+          senderUid: authProvider.uid!,
+          senderName: authProvider.displayName ?? 'Unknown',
+          text: text,
+          replyToId: _replyingTo!['id'],
+          replyToText: _replyingTo!['text'] ?? '',
+          replyToSender: _replyingTo!['sender_name'] ?? '',
+        );
+        setState(() {
+          _replyingTo = null;
+          if (sentMsg.isNotEmpty) {
+            _messages.insert(0, sentMsg);
+            _newMessageIds.add(sentMsg['id'].toString());
+          }
+        });
+        _scrollToLatest();
+      } else {
+        final sentMsg = await ApiService.sendMessage(
+          chatId: _chatId,
+          senderUid: authProvider.uid!,
+          senderName: authProvider.displayName ?? 'Unknown',
+          text: text,
+          messageType: 'text',
+        );
+        setState(() {
+          if (sentMsg.isNotEmpty) {
+            _messages.insert(0, sentMsg);
+            _newMessageIds.add(sentMsg['id'].toString());
+          }
+        });
+        _scrollToLatest();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final errorStr = e.toString();
+      if (errorStr.contains('403') || errorStr.contains('blocked') || errorStr.contains('chặn')) {
+        if (errorStr.contains('đã chặn người nhận') || errorStr.contains('blocked the receiver')) {
+          setState(() => _peerBlocked = true);
+        } else {
+          setState(() => _theyBlockedMe = true);
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context).translate('blocked_cannot_send')),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context).tr('send_failed', params: {'error': e})),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      _messageController.text = text;
+      return;
     }
-
-    SocketService.instance.sendMessage({
-      'chatId': _chatId,
-      'senderUid': authProvider.uid!,
-      'senderName': authProvider.displayName ?? 'Unknown',
-      'text': text,
-      'messageType': 'text',
-    });
-
-    await _loadMessages();
   }
 
   Future<void> _searchMessages(String query) async {
     if (query.isEmpty) {
-      await _loadMessages();
+      await _loadMessages(silent: true);
       return;
     }
     try {
       _messages = await ApiService.searchMessages(_chatId, query);
       if (mounted) setState(() {});
-    } catch (e) {
-      debugPrint('Search error: $e');
-    }
+    } catch (_) {}
   }
 
   void _setReply(Map<String, dynamic> message) {
@@ -456,17 +586,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
         imageBase64: base64Image,
       );
 
-      SocketService.instance.sendMessage({
-        'chatId': _chatId,
-        'senderUid': authProvider.uid!,
-        'senderName': authProvider.displayName ?? 'Unknown',
-        'text': '',
-        'messageType': 'image',
-        'imageBase64': base64Image,
-      });
+      final tempId = DateTime.now().millisecondsSinceEpoch;
 
-      await _loadMessages(silent: true);
-      _scrollToLatest();
+      final newMsg = <String, dynamic>{
+        'id': tempId,
+        'text': '',
+        'sender_uid': authProvider.uid!,
+        'sender_name': authProvider.displayName ?? 'Unknown',
+        'sender_avatar': authProvider.avatarUrl,
+        'created_at': DateTime.now().toIso8601String(),
+        'is_edited': false,
+        'message_type': 'image',
+        'imageUrl': 'data:image/png;base64,$base64Image',
+        'image_base64': null,
+        'voice_duration': 0,
+        'delivery_status': 'sent',
+        'reply_to_text': null,
+        'reply_to_sender': null,
+        'is_pinned': false,
+        'is_deleted': false,
+        'forwarded': false,
+        'image_label': null,
+        'reactions': [],
+      };
+      if (mounted) {
+        setState(() {
+          _newMessageIds.add(tempId.toString());
+          _messages.insert(0, newMsg);
+        });
+        _scrollToLatest();
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -506,6 +655,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
 
     final bytes = await file.readAsBytes();
     final voiceBase64 = base64Encode(bytes);
+    if (!mounted) return;
     final authProvider = context.read<AuthProvider>();
     if (authProvider.uid == null) return;
 
@@ -519,16 +669,35 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       voiceDuration: _recordDuration * 1000,
     );
 
-    SocketService.instance.sendMessage({
-      'chatId': _chatId,
-      'senderUid': authProvider.uid!,
-      'senderName': authProvider.displayName ?? 'Unknown',
-      'text': '',
-      'messageType': 'voice',
-    });
+    final tempId = DateTime.now().millisecondsSinceEpoch;
 
-    await _loadMessages(silent: true);
-    _scrollToLatest();
+    final newMsg = <String, dynamic>{
+      'id': tempId,
+      'text': '',
+      'sender_uid': authProvider.uid!,
+      'sender_name': authProvider.displayName ?? 'Unknown',
+      'sender_avatar': authProvider.avatarUrl,
+      'created_at': DateTime.now().toIso8601String(),
+      'is_edited': false,
+      'message_type': 'voice',
+      'imageUrl': null,
+      'image_base64': null,
+      'voice_duration': _recordDuration * 1000,
+      'delivery_status': 'sent',
+      'reply_to_text': null,
+      'reply_to_sender': null,
+      'is_pinned': false,
+      'is_deleted': false,
+      'forwarded': false,
+      'image_label': null,
+      'reactions': [],
+    };
+    if (mounted) {
+      setState(() {
+        _messages.insert(0, newMsg);
+      });
+      _scrollToLatest();
+    }
     await file.delete();
   }
 
@@ -550,12 +719,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
 
     await ApiService.updateMessage(int.parse(_editingMessageId!), text);
 
+    final editingId = _editingMessageId!;
     setState(() {
       _isEditing = false;
       _editingMessageId = null;
+      final idx = _messages.indexWhere((m) {
+        final msg = m as Map<String, dynamic>;
+        return msg['id'].toString() == editingId;
+      });
+      if (idx != -1) {
+        final msg = Map<String, dynamic>.from(_messages[idx] as Map);
+        msg['text'] = text;
+        msg['is_edited'] = true;
+        _messages[idx] = msg;
+      }
     });
-
-    await _loadMessages();
   }
 
 
@@ -578,7 +756,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
             title: Text(AppLocalizations.of(context).translate('delete_for_me')),
             onTap: () {
               Navigator.pop(context);
-              ApiService.deleteForMe(int.parse(messageId)).then((_) => _loadMessages(silent: true));
+              ApiService.deleteForMe(int.parse(messageId)).then((_) {
+                setState(() {
+                  _messages.removeWhere((m) {
+                    final msg = m as Map<String, dynamic>;
+                    return msg['id'].toString() == messageId;
+                  });
+                });
+              });
             },
           ),
         ),
@@ -631,11 +816,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                   final res = await ApiService.pinMessage(_chatId, int.parse(messageId));
                   if (!mounted) return;
                   if (res['ok'] == true) {
-                    await _loadMessages(silent: true);
+                    setState(() {
+                      final idx = _messages.indexWhere((m) {
+                        final msg = m as Map<String, dynamic>;
+                        return msg['id'].toString() == messageId;
+                      });
+                      if (idx != -1) {
+                        final msg = Map<String, dynamic>.from(_messages[idx] as Map);
+                        msg['is_pinned'] = !(msg['is_pinned'] == true);
+                        _messages[idx] = msg;
+                      }
+                    });
                     await _loadPinned();
+                    if (!mounted) return;
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(res['error']?.toString() ?? AppLocalizations.of(context).translate('pin_failed')), backgroundColor: AppColors.error),
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(content: Text(res['error']?.toString() ?? AppLocalizations.of(this.context).translate('pin_failed')), backgroundColor: AppColors.error),
                     );
                   }
                 },
@@ -664,7 +860,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                 title: Text(AppLocalizations.of(context).translate('delete_for_me')),
                 onTap: () {
                   Navigator.pop(context);
-                  ApiService.deleteForMe(int.parse(messageId)).then((_) => _loadMessages(silent: true));
+                  ApiService.deleteForMe(int.parse(messageId)).then((_) {
+                setState(() {
+                  _messages.removeWhere((m) {
+                    final msg = m as Map<String, dynamic>;
+                    return msg['id'].toString() == messageId;
+                  });
+                });
+              });
                 },
               ),
               if (isMyMessage)
@@ -695,7 +898,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
             onPressed: () {
               Navigator.pop(context);
               ApiService.deleteForEveryone(int.parse(messageId)).then((_) {
-                _loadMessages(silent: true);
+                setState(() {
+                  final idx = _messages.indexWhere((m) {
+                    final msg = m as Map<String, dynamic>;
+                    return msg['id'].toString() == messageId;
+                  });
+                  if (idx != -1) {
+                    final msg = Map<String, dynamic>.from(_messages[idx] as Map);
+                    msg['is_deleted'] = true;
+                    _messages[idx] = msg;
+                  }
+                });
                 _loadPinned();
               });
             },
@@ -764,7 +977,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               return GestureDetector(
                 onTap: () {
                   Navigator.pop(context);
-                  ApiService.addReaction(messageId, emoji).then((_) => _loadMessages(silent: true));
+                  ApiService.addReaction(messageId, emoji).then((res) {
+                    final msgData = res?['message'] as Map<String, dynamic>?;
+                    if (msgData != null) {
+                      setState(() {
+                        final idx = _messages.indexWhere((m) {
+                          final msg = m as Map<String, dynamic>;
+                          return msg['id'].toString() == msgData['id'].toString();
+                        });
+                        if (idx != -1) {
+                          final msg = Map<String, dynamic>.from(_messages[idx] as Map);
+                          msg['reactions'] = (msgData['reactions'] as List?)
+                              ?.map((r) => Map<String, dynamic>.from(r as Map))
+                              .toList() ?? msg['reactions'];
+                          _messages[idx] = msg;
+                        }
+                      });
+                    }
+                  });
                 },
                 child: Text(emoji, style: const TextStyle(fontSize: 32)),
               );
@@ -829,7 +1059,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                                 await ApiService.pinMessage(_chatId, msg['id']);
                                 if (!context.mounted) return;
                                 Navigator.pop(context);
-                                _loadMessages();
+                                setState(() {
+                                  final idx = _messages.indexWhere((m) {
+                                    final item = m as Map<String, dynamic>;
+                                    return item['id'].toString() == msg['id'].toString();
+                                  });
+                                  if (idx != -1) {
+                                    final updated = Map<String, dynamic>.from(_messages[idx] as Map);
+                                    updated['is_pinned'] = false;
+                                    _messages[idx] = updated;
+                                  }
+                                });
                                 _loadPinned();
                               },
                             ),
@@ -841,17 +1081,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           ),
         ),
       );
-    } catch (e) {
-      debugPrint('Error loading pinned messages: $e');
-    }
+    } catch (_) {}
   }
 
   void _confirmBlockUser() {
+    String? reportReason;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(AppLocalizations.of(context).translate('block_user')),
-        content: Text(AppLocalizations.of(context).tr('block_confirm', params: {'name': _chatName})),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(AppLocalizations.of(context).tr('block_confirm', params: {'name': _chatName})),
+            const SizedBox(height: 12),
+            TextField(
+              decoration: InputDecoration(
+                hintText: AppLocalizations.of(context).translate('report_reason_hint'),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              maxLines: 2,
+              onChanged: (value) => reportReason = value.trim().isEmpty ? null : value.trim(),
+            ),
+          ],
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(context).translate('cancel'))),
           TextButton(
@@ -859,7 +1112,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               Navigator.pop(ctx);
               if (_peerUid == null) return;
               try {
-                await ApiService.blockUser(_peerUid!);
+                await ApiService.blockUser(_peerUid!, reportReason: reportReason);
                 if (!mounted) return;
                 setState(() => _peerBlocked = true);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -884,7 +1137,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     try {
       await ApiService.unblockUser(_peerUid!);
       if (!mounted) return;
-      setState(() => _peerBlocked = false);
+      setState(() {
+        _peerBlocked = false;
+        _theyBlockedMe = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context).translate('unblocked'))),
       );
@@ -897,16 +1153,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   }
 
   void _showClearChatConfirm() {
-    final rootContext = context;
     showDialog(
-      context: rootContext,
+      context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(AppLocalizations.of(rootContext).translate('delete_chat')),
-        content: Text(AppLocalizations.of(rootContext).translate('clear_chat_confirm')),
+        title: Text(AppLocalizations.of(context).translate('delete_chat')),
+        content: Text(AppLocalizations.of(context).translate('clear_chat_confirm')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text(AppLocalizations.of(rootContext).translate('cancel')),
+            child: Text(AppLocalizations.of(context).translate('cancel')),
           ),
           TextButton(
             onPressed: () async {
@@ -914,21 +1169,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               try {
                 await ApiService.deleteChat(_chatId);
                 if (!mounted) return;
-                ScaffoldMessenger.of(rootContext).showSnackBar(
-                  SnackBar(content: Text(AppLocalizations.of(rootContext).translate('chat_deleted'))),
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(AppLocalizations.of(context).translate('chat_deleted'))),
                 );
-                Navigator.of(rootContext).pushNamedAndRemoveUntil(
+                Navigator.of(context).pushNamedAndRemoveUntil(
                   AppRoutes.chatList,
                   (route) => route.isFirst,
                 );
               } catch (e) {
                 if (!mounted) return;
-                ScaffoldMessenger.of(rootContext).showSnackBar(
-                  SnackBar(content: Text(AppLocalizations.of(rootContext).tr('delete_failed', params: {'error': e}))),
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(AppLocalizations.of(context).tr('delete_failed', params: {'error': e}))),
                 );
               }
             },
-            child: Text(AppLocalizations.of(rootContext).translate('delete'), style: const TextStyle(color: AppColors.error)),
+            child: Text(AppLocalizations.of(context).translate('delete'), style: const TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -941,6 +1196,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       _editingMessageId = null;
       _messageController.clear();
     });
+  }
+
+  void _startCall({required bool isVideo}) {
+    if (_peerUid == null || _myUid == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          myUid: _myUid!,
+          peerUid: _peerUid!,
+          peerName: _chatName,
+          peerAvatar: _chatAvatar,
+          isVideo: isVideo,
+          isCaller: true,
+          chatId: _chatId,
+        ),
+      ),
+    );
   }
 
   @override
@@ -997,6 +1270,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
             icon: const Icon(Icons.search),
             onPressed: () => setState(() => _isSearching = !_isSearching),
           ),
+          if (!_isGroup) ...[
+            IconButton(
+              icon: const Icon(Icons.call),
+              tooltip: AppLocalizations.of(context).translate('voice_call'),
+              onPressed: () => _startCall(isVideo: false),
+            ),
+            IconButton(
+              icon: const Icon(Icons.videocam),
+              tooltip: AppLocalizations.of(context).translate('video_call'),
+              onPressed: () => _startCall(isVideo: true),
+            ),
+          ],
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
@@ -1063,7 +1348,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                     onPressed: () {
                       _searchController.clear();
                       setState(() => _isSearching = false);
-                      _loadMessages();
+                      _loadMessages(silent: true);
                     },
                   ),
                 ),
@@ -1172,13 +1457,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       controller: _scrollController,
       reverse: true,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      itemCount: _messages.length,
+      itemCount: _messages.length + (_isLoadingMore ? 1 : 0),
       itemBuilder: (context, index) {
+        if (index >= _messages.length) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
         final msg = _messages[index] as Map<String, dynamic>;
         final isMe = msg['sender_uid'] == authProvider.uid;
         final reactions = (msg['reactions'] as List<dynamic>?)?.map((r) => r as Map<String, dynamic>).toList() ?? [];
+        final msgId = msg['id'].toString();
+        final isNew = _newMessageIds.contains(msgId);
 
-        return MessageBubble(
+        final bubble = MessageBubble(
           text: msg['text'] ?? '',
           isMe: isMe,
           senderName: msg['sender_name'] ?? '',
@@ -1200,6 +1493,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           onLongPress: () => _showMessageOptions(msg),
           onSwipeReply: () => _setReply(msg),
         );
+
+        if (isNew) {
+          return _SlideInMessage(
+            key: ValueKey('anim_$msgId'),
+            isMe: isMe,
+            onAnimationComplete: () => _newMessageIds.remove(msgId),
+            child: bubble,
+          );
+        }
+        return bubble;
       },
     );
   }
@@ -1239,6 +1542,70 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   }
 
   Widget _buildInputBar() {
+    if (!_isGroup && _peerBlocked) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 4,
+              offset: const Offset(0, -1),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Row(
+            children: [
+              const Icon(Icons.block, color: AppColors.textSecondary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  AppLocalizations.of(context).translate('you_blocked_user'),
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                ),
+              ),
+              TextButton(
+                onPressed: _unblockUser,
+                child: Text(AppLocalizations.of(context).translate('unblock')),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!_isGroup && _theyBlockedMe) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 4,
+              offset: const Offset(0, -1),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Row(
+            children: [
+              const Icon(Icons.block, color: AppColors.textSecondary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  AppLocalizations.of(context).translate('they_blocked_you'),
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
@@ -1360,6 +1727,76 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SlideInMessage extends StatefulWidget {
+  final bool isMe;
+  final VoidCallback onAnimationComplete;
+  final Widget child;
+
+  const _SlideInMessage({
+    super.key,
+    required this.isMe,
+    required this.onAnimationComplete,
+    required this.child,
+  });
+
+  @override
+  State<_SlideInMessage> createState() => _SlideInMessageState();
+}
+
+class _SlideInMessageState extends State<_SlideInMessage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<Offset> _slideAnimation;
+  late final Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+
+    final direction = widget.isMe ? const Offset(0.3, 0) : const Offset(-0.3, 0);
+    _slideAnimation = Tween<Offset>(
+      begin: direction,
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeIn,
+    ));
+
+    _controller.forward().then((_) {
+      if (mounted) widget.onAnimationComplete();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: widget.child,
       ),
     );
   }

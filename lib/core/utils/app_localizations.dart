@@ -9,7 +9,7 @@ class AppLocalizations {
     return AppLocalizations(Localizations.localeOf(context));
   }
 
-  static const _AppLocalizationsDelegate delegate = _AppLocalizationsDelegate();
+  static const AppLocalizationsDelegate delegate = AppLocalizationsDelegate();
 
   static const _localizedValues = {
     'en': {
@@ -111,6 +111,11 @@ class AppLocalizations {
       'block_failed': 'Block failed: {error}',
       'unblocked': 'User unblocked',
       'unblock_failed': 'Unblock failed: {error}',
+      'blocked_cannot_send': 'You cannot send messages to this user.',
+      'you_blocked_user': 'You blocked this user',
+      'they_blocked_you': 'This user has blocked you',
+      'report_reason_hint': 'Report reason (optional)',
+      'send_failed': 'Failed to send: {error}',
       'clear_chat_confirm': 'This conversation will be completely deleted and you will return to chat list. Are you sure?',
       'delete_failed': 'Delete failed: {error}',
       'pin_failed': 'Pin failed',
@@ -119,6 +124,7 @@ class AppLocalizations {
       'unmuted': 'Notifications enabled',
       'mute': 'Mute notifications',
       'unmute': 'Enable notifications',
+      'microphone': 'Microphone',
       'unblock_user': 'Unblock user',
       'first_message': 'Send your first message!',
       'from_gallery': 'From gallery',
@@ -128,6 +134,22 @@ class AppLocalizations {
       'recording': 'Recording... {seconds}s',
       'typing_with_name': '{name} is typing...',
       'send_image_failed': 'Failed to send image: {error}',
+      'voice_call': 'Voice call',
+      'video_call': 'Video call',
+      'voice_call_coming_soon': 'Voice call is coming soon',
+      'video_call_coming_soon': 'Video call is coming soon',
+      'calling': 'Calling...',
+      'ringing': 'Ringing...',
+      'connecting': 'Connecting...',
+      'call_ended': 'Call ended',
+      'call_rejected': 'Call rejected',
+      'call_failed': 'Call failed',
+      'incoming_voice_call': 'Incoming voice call',
+      'incoming_video_call': 'Incoming video call',
+      'calling_you': '{name} is calling you',
+      'decline': 'Decline',
+      'speaker': 'Speaker',
+      'camera': 'Camera',
       'delete_chat_confirm_long': 'The conversation will be permanently deleted and you will return to chat list. Are you sure?',
       'chat_deleted': 'Conversation deleted',
       // Profile
@@ -426,6 +448,11 @@ class AppLocalizations {
       'block_failed': 'Chặn thất bại: {error}',
       'unblocked': 'Đã bỏ chặn người dùng',
       'unblock_failed': 'Bỏ chặn thất bại: {error}',
+      'blocked_cannot_send': 'Bạn không thể gửi tin nhắn cho người này.',
+      'you_blocked_user': 'Bạn đã chặn người này',
+      'they_blocked_you': 'Người này đã chặn bạn',
+      'report_reason_hint': 'Lý do báo cáo (tùy chọn)',
+      'send_failed': 'Gửi thất bại: {error}',
       'clear_chat_confirm': 'Cuộc trò chuyện sẽ bị xóa hoàn toàn và bạn sẽ quay lại danh sách chat. Bạn có chắc?',
       'delete_failed': 'Xóa thất bại: {error}',
       'pin_failed': 'Ghim thất bại',
@@ -434,6 +461,7 @@ class AppLocalizations {
       'unmuted': 'Đã bật thông báo',
       'mute': 'Tắt thông báo',
       'unmute': 'Bật thông báo',
+      'microphone': 'Microphone',
       'unblock_user': 'Bỏ chặn người dùng',
       'first_message': 'Hãy gửi tin nhắn đầu tiên!',
       'from_gallery': 'Chọn từ thư viện',
@@ -443,6 +471,22 @@ class AppLocalizations {
       'recording': 'Đang ghi âm... {seconds}s',
       'typing_with_name': '{name} đang soạn tin...',
       'send_image_failed': 'Gửi ảnh thất bại: {error}',
+      'voice_call': 'Gọi điện',
+      'video_call': 'Gọi video',
+      'voice_call_coming_soon': 'Tính năng gọi điện sẽ sớm ra mắt',
+      'video_call_coming_soon': 'Tính năng gọi video sẽ sớm ra mắt',
+      'calling': 'Đang gọi...',
+      'ringing': 'Đang đổ chuông...',
+      'connecting': 'Đang kết nối...',
+      'call_ended': 'Cuộc gọi kết thúc',
+      'call_rejected': 'Cuộc gọi bị từ chối',
+      'call_failed': 'Cuộc gọi thất bại',
+      'incoming_voice_call': 'Cuộc gọi đến',
+      'incoming_video_call': 'Cuộc gọi video đến',
+      'calling_you': '{name} đang gọi cho bạn',
+      'decline': 'Từ chối',
+      'speaker': 'Loa',
+      'camera': 'Camera',
       'delete_chat_confirm_long': 'Cuộc trò chuyện sẽ bị xóa hoàn toàn và bạn sẽ quay lại danh sách chat. Bạn có chắc?',
       'chat_deleted': 'Đã xóa cuộc trò chuyện',
       // Profile
@@ -659,8 +703,8 @@ class AppLocalizations {
   }
 }
 
-class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
-  const _AppLocalizationsDelegate();
+class AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
+  const AppLocalizationsDelegate();
 
   @override
   bool isSupported(Locale locale) {
@@ -673,5 +717,5 @@ class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> 
   }
 
   @override
-  bool shouldReload(_AppLocalizationsDelegate old) => false;
+  bool shouldReload(AppLocalizationsDelegate old) => false;
 }

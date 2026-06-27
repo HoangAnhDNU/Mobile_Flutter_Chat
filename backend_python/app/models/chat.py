@@ -36,23 +36,31 @@ class Chat(Base):
         }
         
         if include_participants:
-            data["participants"] = [p.user.to_dict(include_email=False) for p in self.participants if p.user]
+            try:
+                data["participants"] = [p.user.to_dict(include_email=False) for p in self.participants if p.user]
+            except Exception:
+                data["participants"] = []
         
-        # Last message (skip deleted/recalled messages)
-        if self.messages:
-            active = [m for m in self.messages if not m.is_deleted]
-            if active:
-                latest = max(active, key=lambda m: m.created_at or datetime.min)
+        # Last message (include recalled messages, show "Tin nhắn đã thu hồi")
+        try:
+            if self.messages:
+                latest = max(self.messages, key=lambda m: m.created_at or datetime.min)
+                sender_name = None
+                try:
+                    sender_name = latest.sender.display_name if latest.sender else None
+                except Exception:
+                    pass
                 data["last_message"] = {
                     "id": str(latest.id),
-                    "content": latest.content,
+                    "content": "Tin nhắn đã thu hồi" if latest.is_deleted else latest.content,
                     "sender_id": str(latest.sender_id) if latest.sender_id else None,
-                    "sender_name": latest.sender.display_name if latest.sender else None,
+                    "sender_name": sender_name,
                     "created_at": latest.created_at.isoformat() if latest.created_at else None,
+                    "is_deleted": latest.is_deleted,
                 }
             else:
                 data["last_message"] = None
-        else:
+        except Exception:
             data["last_message"] = None
         
         return data
@@ -69,6 +77,8 @@ class ChatParticipant(Base):
     is_muted = Column(Boolean, default=False)
     is_pinned = Column(Boolean, default=False)
     is_archived = Column(Boolean, default=False)
+    is_hidden = Column(Boolean, default=False)
+    messages_cleared_at = Column(DateTime, nullable=True)
     joined_at = Column(DateTime, server_default=func.now())
     
     # Relationships

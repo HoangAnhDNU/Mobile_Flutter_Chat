@@ -109,6 +109,21 @@ async def create_direct_chat(
         target_user_id=int(request.user_id)
     )
     
+    # Eager-load messages to avoid greenlet error in to_dict
+    from sqlalchemy import select as sa_select
+    from sqlalchemy.orm import selectinload
+    from ..models.chat import Chat, ChatParticipant
+    from ..models.message import Message
+    eager_result = await db.execute(
+        sa_select(Chat)
+        .options(
+            selectinload(Chat.participants).selectinload(ChatParticipant.user),
+            selectinload(Chat.messages).selectinload(Message.sender),
+        )
+        .where(Chat.id == chat.id)
+    )
+    chat = eager_result.scalar_one()
+    
     return {
         "chat": chat.to_dict(current_user_id=current_user.id),
         "message": "Tạo cuộc hội thoại thành công"
@@ -272,25 +287,15 @@ async def send_message(
 
     message_data = message.to_dict()
 
-    # Phát tin nhắn realtime tới tất cả thành viên đang ở trong phòng chat.
-    await sio.emit(
-        "new_message",
-        {
-            "chatId": chat_id,
-            "senderUid": str(current_user.id),
-            "senderName": current_user.display_name,
-            "message": message_data,
-        },
-        room=f"chat_{chat_id}",
-    )
-
-    # Also emit to each participant's personal room so chat list updates
+    # Emit to each participant's personal room (covers both chat detail and chat list screens).
     from sqlalchemy import select as sa_select
     from ..models.chat import ChatParticipant
     participants_result = await db.execute(
         sa_select(ChatParticipant.user_id).where(ChatParticipant.chat_id == chat_id)
     )
-    for (uid,) in participants_result.all():
+    participant_ids = [uid for (uid,) in participants_result.all()]
+
+    for uid in participant_ids:
         if uid != current_user.id:
             await sio.emit(
                 "new_message",
@@ -362,7 +367,7 @@ async def delete_message(
     if for_everyone:
         await sio.emit(
             "message_deleted",
-            {"chatId": chat_id, "messageId": str(message_id)},
+            {"chatId": chat_id, "messageId": str(message_id), "isDeleted": True},
             room=f"chat_{chat_id}",
         )
         # Also emit to personal rooms so chat list updates
@@ -374,7 +379,7 @@ async def delete_message(
         for (uid,) in participants_result.all():
             await sio.emit(
                 "message_deleted",
-                {"chatId": chat_id, "messageId": str(message_id)},
+                {"chatId": chat_id, "messageId": str(message_id), "isDeleted": True},
                 room=f"user_{uid}",
             )
 
@@ -394,11 +399,19 @@ async def toggle_pin_message(
         message_id=message_id,
         user_id=current_user.id,
     )
-    await sio.emit(
-        "pin_update",
-        {"chatId": cid, "messageId": str(message_id), "isPinned": is_pinned},
-        room=f"chat_{cid}",
+    # Emit to all participants via user rooms
+    from sqlalchemy import select as sa_select
+    from ..models.chat import ChatParticipant
+    participants_result = await db.execute(
+        sa_select(ChatParticipant.user_id).where(ChatParticipant.chat_id == cid)
     )
+    for (uid,) in participants_result.all():
+        if uid != current_user.id:
+            await sio.emit(
+                "pin_update",
+                {"chatId": cid, "messageId": str(message_id), "isPinned": is_pinned},
+                room=f"user_{uid}",
+            )
     return {"is_pinned": is_pinned, "message": "Đã ghim" if is_pinned else "Đã bỏ ghim"}
 
 
@@ -432,12 +445,19 @@ async def add_reaction(
 
     message_data = message.to_dict()
 
-    # Phát realtime để các thành viên thấy reaction cập nhật ngay.
-    await sio.emit(
-        "reaction_update",
-        {"chatId": message.chat_id, "message": message_data},
-        room=f"chat_{message.chat_id}",
+    # Emit to all participants via user rooms
+    from sqlalchemy import select as sa_select
+    from ..models.chat import ChatParticipant
+    participants_result = await db.execute(
+        sa_select(ChatParticipant.user_id).where(ChatParticipant.chat_id == message.chat_id)
     )
+    for (uid,) in participants_result.all():
+        if uid != current_user.id:
+            await sio.emit(
+                "reaction_update",
+                {"chatId": message.chat_id, "message": message_data},
+                room=f"user_{uid}",
+            )
 
     return {
         "message": message_data,
@@ -554,12 +574,12 @@ async def delete_chat(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Xóa toàn bộ cuộc trò chuyện (tin nhắn, thành viên, chat)."""
-    from sqlalchemy import select, and_, delete
-    from ..models.message import Message
-    from ..models.chat import Chat, ChatParticipant
+    """Xóa cuộc trò chuyện cho phía người dùng hiện tại (ẩn + xóa nội dung, không ảnh hưởng bên kia)."""
+    from sqlalchemy import select, and_
+    from ..models.chat import ChatParticipant
+    from datetime import datetime
 
-    check = (await db.execute(
+    participant = (await db.execute(
         select(ChatParticipant).where(
             and_(
                 ChatParticipant.chat_id == chat_id,
@@ -567,14 +587,12 @@ async def delete_chat(
             )
         )
     )).scalar_one_or_none()
-    if not check:
+    if not participant:
         raise HTTPException(status_code=403, detail="Bạn không có quyền với cuộc trò chuyện này")
 
-    await db.execute(delete(Message).where(Message.chat_id == chat_id))
-    await db.execute(delete(ChatParticipant).where(ChatParticipant.chat_id == chat_id))
-    await db.execute(delete(Chat).where(Chat.id == chat_id))
+    participant.is_hidden = True
+    participant.messages_cleared_at = datetime.utcnow()
     await db.commit()
-    await sio.emit("chat_deleted", {"chatId": chat_id}, room=f"chat_{chat_id}")
     return {"message": "Đã xóa cuộc trò chuyện"}
 
 
@@ -663,3 +681,57 @@ async def toggle_archive(
         "is_archived": participant.is_archived,
         "message": "Đã lưu trữ" if participant.is_archived else "Đã bỏ lưu trữ"
     }
+
+
+# ==================== LINK PREVIEW (OpenGraph) ====================
+
+@router.get("/og/preview", response_model=dict)
+async def get_link_preview(
+    url: str = Query(..., min_length=1),
+    current_user: User = Depends(get_current_user),
+):
+    """Fetch OpenGraph metadata for a URL (proxy to avoid CORS)."""
+    import httpx
+    import re
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return {"title": None, "description": None, "image": None, "siteName": None}
+
+    try:
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; LinkPreview/1.0)"})
+            html = resp.text[:50000]  # Only parse first 50KB
+
+        def extract_meta(prop: str) -> str | None:
+            m = re.search(rf'<meta[^>]+(?:property|name)=["\']({prop})["\'][^>]+content=["\']([^"\']*)["\']', html, re.IGNORECASE)
+            if m:
+                return m.group(2).strip()
+            m2 = re.search(rf'<meta[^>]+content=["\']([^"\']*)["\'][^>]+(?:property|name)=["\']({prop})["\']', html, re.IGNORECASE)
+            if m2:
+                return m2.group(1).strip()
+            return None
+
+        title = extract_meta("og:title") or extract_meta("twitter:title")
+        description = extract_meta("og:description") or extract_meta("twitter:description") or extract_meta("description")
+        image = extract_meta("og:image") or extract_meta("twitter:image")
+        site_name = extract_meta("og:site_name")
+
+        if not title:
+            t = re.search(r'<title[^>]*>([^<]+)</title>', html, re.IGNORECASE)
+            if t:
+                title = t.group(1).strip()
+
+        if image and not image.startswith("http"):
+            base = f"{parsed.scheme}://{parsed.netloc}"
+            image = base + (image if image.startswith("/") else "/" + image)
+
+        return {
+            "title": title,
+            "description": description,
+            "image": image,
+            "siteName": site_name or parsed.netloc,
+        }
+    except Exception:
+        return {"title": None, "description": None, "image": None, "siteName": None}

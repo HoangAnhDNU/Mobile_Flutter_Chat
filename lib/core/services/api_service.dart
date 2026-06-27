@@ -107,8 +107,8 @@ class ApiService {
       'image_base64': null,
       'voice_duration': 0,
       'delivery_status': m['status'] ?? 'sent',
-      'reply_to_text': null,
-      'reply_to_sender': null,
+      'reply_to_text': m['reply_to_text'],
+      'reply_to_sender': m['reply_to_sender'],
       'is_pinned': m['is_pinned'] == true,
       'is_deleted': m['is_deleted'] == true,
       'forwarded': m['forwarded'] == true,
@@ -329,9 +329,9 @@ class ApiService {
     return chats.map((c) => _adaptChat(Map<String, dynamic>.from(c as Map))).toList();
   }
 
-  static Future<List<dynamic>> getMessages(int chatId) async {
+  static Future<List<dynamic>> getMessages(int chatId, {int page = 1, int limit = 30}) async {
     final response = await _get(
-      Uri.parse('$baseUrl/chat/$chatId/messages?page=1&limit=100'),
+      Uri.parse('$baseUrl/chat/$chatId/messages?page=$page&limit=$limit'),
       headers: _headers,
     );
     if (response.statusCode != 200) return [];
@@ -533,12 +533,16 @@ class ApiService {
 
   // ==================== Reactions ====================
 
-  static Future<void> addReaction(int messageId, String emoji) async {
-    await _post(
+  static Future<Map<String, dynamic>?> addReaction(int messageId, String emoji) async {
+    final response = await _post(
       Uri.parse('$baseUrl/chat/messages/$messageId/reactions'),
       headers: _headers,
       body: jsonEncode({'emoji': emoji}),
     );
+    if (response.statusCode == 200) {
+      return _decode(response) as Map<String, dynamic>;
+    }
+    return null;
   }
 
   /// Backend đã dùng toggle qua addReaction nên removeReaction gọi lại addReaction.
@@ -597,6 +601,21 @@ class ApiService {
     await _delete(Uri.parse('$baseUrl/chat/$chatId/messages'), headers: _headers);
   }
 
+  // ==================== Link Preview ====================
+
+  static Future<Map<String, dynamic>?> getLinkPreview(String url) async {
+    try {
+      final response = await _get(
+        Uri.parse('$baseUrl/chat/og/preview?url=${Uri.encodeComponent(url)}'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        return _decode(response) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // ==================== Forward ====================
 
   static Future<Map<String, dynamic>> forwardMessage(int messageId, int targetChatId) async {
@@ -610,16 +629,27 @@ class ApiService {
 
   // ==================== Block ====================
 
-  static Future<void> blockUser(String blockedUid) async {
-    await _post(
+  static Future<void> blockUser(String blockedUid, {String? reportReason}) async {
+    final response = await _post(
       Uri.parse('$baseUrl/block'),
       headers: _headers,
-      body: jsonEncode({'user_id': blockedUid}),
+      body: jsonEncode({
+        'user_id': blockedUid,
+        if (reportReason != null && reportReason.isNotEmpty) 'report_reason': reportReason,
+      }),
     );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final data = _decode(response) as Map<String, dynamic>;
+      throw Exception(data['detail'] ?? 'Block failed');
+    }
   }
 
   static Future<void> unblockUser(String blockedUid) async {
-    await _delete(Uri.parse('$baseUrl/block/$blockedUid'), headers: _headers);
+    final response = await _delete(Uri.parse('$baseUrl/block/$blockedUid'), headers: _headers);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final data = _decode(response) as Map<String, dynamic>;
+      throw Exception(data['detail'] ?? 'Unblock failed');
+    }
   }
 
   static Future<List<dynamic>> getBlockedUsers() async {
@@ -629,6 +659,21 @@ class ApiService {
       return (data['blocked_users'] as List?) ?? [];
     } catch (_) {
       return [];
+    }
+  }
+
+  static Future<Map<String, bool>> checkBlockStatus(String otherUid) async {
+    try {
+      final response = await _get(Uri.parse('$baseUrl/block/check/$otherUid'), headers: _headers);
+      final data = _decode(response) as Map<String, dynamic>;
+      debugPrint('checkBlockStatus($otherUid): ${data['i_blocked_them']} / ${data['they_blocked_me']}');
+      return {
+        'i_blocked_them': data['i_blocked_them'] == true,
+        'they_blocked_me': data['they_blocked_me'] == true,
+      };
+    } catch (e) {
+      debugPrint('checkBlockStatus error: $e');
+      return {'i_blocked_them': false, 'they_blocked_me': false};
     }
   }
 

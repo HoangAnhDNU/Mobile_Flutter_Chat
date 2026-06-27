@@ -72,6 +72,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
       name: _nameC.text.trim(),
       avatarUrl: _avatarDataUri,
     );
+    if (!mounted) return;
     _showSnack(ok ? AppLocalizations.of(context).translate('group_info_saved') : AppLocalizations.of(context).translate('save_failed'), error: !ok);
     if (ok) _loadDetail();
   }
@@ -90,6 +91,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
     );
     if (confirm != true) return;
     final ok = await ApiService.adminRemoveGroupMember(widget.chatId, member['id'].toString());
+    if (!mounted) return;
     _showSnack(ok ? AppLocalizations.of(context).translate('member_removed') : AppLocalizations.of(context).translate('action_failed'), error: !ok);
     if (ok) _loadDetail();
   }
@@ -159,6 +161,7 @@ class _AdminGroupEditScreenState extends State<AdminGroupEditScreen> {
 
     if (picked == true && selected.isNotEmpty) {
       final ok = await ApiService.adminAddGroupMembers(widget.chatId, selected.toList());
+      if (!mounted) return;
       _showSnack(ok ? AppLocalizations.of(context).translate('members_added') : AppLocalizations.of(context).translate('action_failed'), error: !ok);
       if (ok) _loadDetail();
     }

@@ -11,5 +11,6 @@ if __name__ == "__main__":
         host=settings.server_host,
         port=settings.server_port,
         reload=True,  # Hot reload trong development
-        log_level="info"
+        log_level="warning",
+        access_log=False,
     )

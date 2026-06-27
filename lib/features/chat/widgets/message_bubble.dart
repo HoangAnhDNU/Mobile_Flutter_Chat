@@ -1,8 +1,7 @@
 import 'dart:convert';
-import 'dart:html' if (dart.library.html) 'dart:html' show window;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/foundation.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/app_colors.dart';
@@ -11,7 +10,9 @@ import '../../../core/constants/app_routes.dart';
 import '../../../core/utils/app_localizations.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../core/utils/downloader.dart';
+import '../../../core/utils/web_opener.dart' if (dart.library.html) '../../../core/utils/web_opener_web.dart';
 import '../screens/image_viewer_screen.dart';
+import 'link_preview.dart';
 
 class MessageBubble extends StatefulWidget {
   final String text;
@@ -261,8 +262,43 @@ class _MessageBubbleState extends State<MessageBubble> {
                   isMe: isMe,
                   durationMs: voiceDuration,
                 )
+              else if (type == 'call')
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      text.contains('nhỡ') ? Icons.call_missed
+                          : text.contains('từ chối') ? Icons.call_end
+                          : text.contains('hủy') ? Icons.call_end
+                          : text.contains('video') ? Icons.videocam
+                          : Icons.call,
+                      size: 16,
+                      color: text.contains('nhỡ') || text.contains('từ chối') || text.contains('hủy')
+                          ? Colors.red
+                          : (isMe ? Colors.white70 : AppColors.primary),
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        text,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontStyle: FontStyle.italic,
+                          color: isMe ? Colors.white : AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
               else
-                _buildTextWithLinks(text, isMe),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildTextWithLinks(text, isMe),
+                    _buildLinkPreviewIfAny(text, isMe),
+                  ],
+                ),
               const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -373,7 +409,7 @@ class _MessageBubbleState extends State<MessageBubble> {
 
   void _openInNewTab(String url) {
     if (kIsWeb) {
-      window.open(url, '_blank');
+      openInNewTab(url);
     }
   }
 
@@ -460,6 +496,13 @@ class _MessageBubbleState extends State<MessageBubble> {
     return Text.rich(
       TextSpan(children: spans),
     );
+  }
+
+  Widget _buildLinkPreviewIfAny(String text, bool isMe) {
+    final urlRegex = RegExp(r'https?://[^\s]+');
+    final match = urlRegex.firstMatch(text);
+    if (match == null) return const SizedBox.shrink();
+    return LinkPreview(url: match.group(0)!, isMe: isMe);
   }
 
   List<Widget> _buildReactionChips() {

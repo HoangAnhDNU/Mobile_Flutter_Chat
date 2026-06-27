@@ -13,7 +13,6 @@ from .socket_instance import sio
 async def lifespan(app: FastAPI):
     """Lifecycle events"""
     # Startup
-    print("🚀 Starting Mobile Flutter Chat Backend (Python)...")
     await init_db()
     # Reset toàn bộ trạng thái online về offline (tránh kẹt online cũ sau restart)
     try:
@@ -23,12 +22,11 @@ async def lifespan(app: FastAPI):
         async with async_session_maker() as session:
             await session.execute(update(User).values(is_online=False))
             await session.commit()
-    except Exception as e:
-        print(f"⚠️  Không thể reset online status: {e}")
-    print("✅ Database initialized")
+    except Exception:
+        pass
     yield
     # Shutdown
-    print("👋 Shutting down...")
+    print("Shutting down...")
 
 
 # FastAPI app
@@ -61,7 +59,6 @@ connected_users: dict = {}
 @sio.event
 async def connect(sid, environ, auth):
     """Handle user connection"""
-    print(f"[SOCKET_CONNECT] sid={sid} auth={auth}")
     # Client có thể gửi token qua auth; nếu có thì set online ngay.
     token = auth.get('token') if auth else None
     if token:
@@ -72,7 +69,6 @@ async def connect(sid, environ, auth):
 
     # Send current online users to the newly connected client
     online_uids = set(connected_users.values())
-    print(f"[SOCKET_CONNECT] online_uids={online_uids}")
     for uid in online_uids:
         await sio.emit('presence_update', {'uid': str(uid), 'is_online': True}, to=sid)
 
@@ -101,24 +97,21 @@ async def _set_user_online(sid, user_id, online: bool):
                 from datetime import datetime
                 user.last_seen = datetime.utcnow()
                 await session.commit()
-    except Exception as e:
-        print(f"⚠️  Lỗi cập nhật online status: {e}")
+    except Exception:
+        pass
 
     # Phát cho toàn bộ client (admin + user) biết thay đổi trạng thái
     await sio.emit('presence_update', {'uid': str(uid_int), 'is_online': online})
-    print(f"User {uid_int} {'online' if online else 'offline'} (sid {sid})")
 
 
 @sio.event
 async def user_online(sid, data):
     """Client báo đã đăng nhập/online (gửi uid)."""
     uid = data.get('uid') if isinstance(data, dict) else data
-    print(f"[USER_ONLINE] sid={sid} data={data} uid={uid}")
     if uid is not None:
         await _set_user_online(sid, uid, True)
         # Send current online users to the newly online client
         online_uids = set(connected_users.values())
-        print(f"[USER_ONLINE] connected_users={connected_users} online_uids={online_uids}")
         for online_uid in online_uids:
             await sio.emit('presence_update', {'uid': str(online_uid), 'is_online': True}, to=sid)
 
@@ -127,13 +120,11 @@ async def user_online(sid, data):
 async def disconnect(sid):
     """Handle user disconnection"""
     user_id = connected_users.pop(sid, None)
-    print(f"[SOCKET_DISCONNECT] sid={sid} user_id={user_id} remaining={connected_users}")
     if user_id is not None:
         # Báo ngừng soạn tin để tránh kẹt "đang soạn tin"
         await sio.emit('user_typing', {'uid': str(user_id), 'isTyping': False})
         # Chỉ set offline nếu không còn connection nào khác của user này
         still_connected = any(uid == user_id for uid in connected_users.values())
-        print(f"[SOCKET_DISCONNECT] user_id={user_id} still_connected={still_connected}")
         if not still_connected:
             await _set_user_online(sid, user_id, False)
 
@@ -144,7 +135,6 @@ async def join_chat(sid, data):
     chat_id = data.get('chat_id') if isinstance(data, dict) else data
     if chat_id:
         await sio.enter_room(sid, f"chat_{chat_id}")
-        print(f"sid {sid} joined chat_{chat_id}")
 
 
 @sio.event
@@ -164,12 +154,8 @@ async def leave_chat(sid, data):
 
 
 
-@sio.event
-async def new_message(sid, data):
-    """Broadcast new message to chat room"""
-    chat_id = data.get('chat_id')
-    if chat_id:
-        await sio.emit('new_message', data, room=f"chat_{chat_id}", skip_sid=sid)
+# new_message is handled by the API route which emits to all participants.
+# No socket handler needed here to avoid duplicate emissions.
 
 
 @sio.event
@@ -207,6 +193,83 @@ async def message_read(sid, data):
 
 # Mount Socket.IO
 socket_app = socketio.ASGIApp(sio, app)
+
+
+# ==================== WEBRTC CALL SIGNALING ====================
+
+@sio.event
+async def call_offer(sid, data):
+    """Caller sends SDP offer to callee."""
+    if not isinstance(data, dict):
+        return
+    target_uid = data.get('targetUid')
+    caller_uid = connected_users.get(sid)
+    if target_uid and caller_uid:
+        payload = {
+            'fromUid': str(caller_uid),
+            'toUid': str(target_uid),
+            'isVideo': data.get('isVideo', False),
+            'callerName': data.get('callerName', ''),
+            'callerAvatar': data.get('callerAvatar'),
+            'sdp': data.get('sdp'),
+        }
+        await sio.emit('call_offer', payload, room=f"user_{target_uid}")
+    # else: missing target_uid or caller_uid
+
+
+@sio.event
+async def call_answer(sid, data):
+    """Callee sends SDP answer back to caller."""
+    if not isinstance(data, dict):
+        return
+    target_uid = data.get('targetUid')
+    callee_uid = connected_users.get(sid)
+    if target_uid and callee_uid:
+        target_sids = [s for s, uid in connected_users.items() if str(uid) == str(target_uid)]
+        payload = {'fromUid': str(callee_uid), 'sdp': data.get('sdp')}
+        for target_sid in target_sids:
+            await sio.emit('call_answer', payload, to=target_sid)
+
+
+@sio.event
+async def call_ice_candidate(sid, data):
+    """Exchange ICE candidates between peers."""
+    if not isinstance(data, dict):
+        return
+    target_uid = data.get('targetUid')
+    sender_uid = connected_users.get(sid)
+    if target_uid and sender_uid:
+        target_sids = [s for s, uid in connected_users.items() if str(uid) == str(target_uid)]
+        payload = {'fromUid': str(sender_uid), 'candidate': data.get('candidate')}
+        for target_sid in target_sids:
+            await sio.emit('call_ice_candidate', payload, to=target_sid)
+
+
+@sio.event
+async def call_end(sid, data):
+    """Either party ends the call."""
+    if not isinstance(data, dict):
+        return
+    target_uid = data.get('targetUid')
+    sender_uid = connected_users.get(sid)
+    if target_uid and sender_uid:
+        target_sids = [s for s, uid in connected_users.items() if str(uid) == str(target_uid)]
+        payload = {'fromUid': str(sender_uid)}
+        for target_sid in target_sids:
+            await sio.emit('call_end', payload, to=target_sid)
+
+@sio.event
+async def call_reject(sid, data):
+    """Callee rejects the incoming call."""
+    if not isinstance(data, dict):
+        return
+    target_uid = data.get('targetUid')
+    sender_uid = connected_users.get(sid)
+    if target_uid and sender_uid:
+        target_sids = [s for s, uid in connected_users.items() if str(uid) == str(target_uid)]
+        payload = {'fromUid': str(sender_uid)}
+        for target_sid in target_sids:
+            await sio.emit('call_reject', payload, to=target_sid)
 
 
 @app.get("/")

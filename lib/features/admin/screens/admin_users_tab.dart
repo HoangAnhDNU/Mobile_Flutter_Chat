@@ -80,6 +80,7 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
     final ok = locked
         ? await ApiService.adminUnlockUser(user['id'])
         : await ApiService.adminLockUser(user['id']);
+    if (!mounted) return;
     if (ok) {
       _showSnack(locked ? AppLocalizations.of(context).translate('user_unlocked') : AppLocalizations.of(context).translate('user_locked'));
       loadUsers(query: _searchController.text);
@@ -105,6 +106,7 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
     );
     if (confirm != true) return;
     final ok = await ApiService.adminDeleteUser(user['id']);
+    if (!mounted) return;
     if (ok) {
       _showSnack(AppLocalizations.of(context).translate('user_deleted'));
       loadUsers(query: _searchController.text);
@@ -132,10 +134,12 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
     );
     if (newPass == null) return;
     if (newPass.length < 6) {
+      if (!mounted) return;
       _showSnack(AppLocalizations.of(context).translate('password_min_6'), error: true);
       return;
     }
     final ok = await ApiService.adminResetPassword(user['id'], newPass);
+    if (!mounted) return;
     _showSnack(ok ? AppLocalizations.of(context).translate('password_reset') : AppLocalizations.of(context).translate('action_failed'), error: !ok);
   }
 
@@ -180,7 +184,7 @@ class AdminUsersTabState extends State<AdminUsersTab> with AutomaticKeepAliveCli
                         onRefresh: () => loadUsers(query: _searchController.text),
                         child: ListView.separated(
                           itemCount: _users.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          separatorBuilder: (_, _) => const Divider(height: 1),
                           itemBuilder: (context, index) => _userTile(_users[index] as Map<String, dynamic>),
                         ),
                       ),

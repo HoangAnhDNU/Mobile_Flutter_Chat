@@ -1,7 +1,7 @@
 from typing import List, Tuple, Optional
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, desc, func
+from sqlalchemy import select, and_, or_, desc, func
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
@@ -23,7 +23,7 @@ class MessageService:
     ) -> Tuple[List[Message], int, bool]:
         """Lấy tin nhắn của chat"""
         # Verify user là participant
-        check = await db.execute(
+        participant_result = await db.execute(
             select(ChatParticipant).where(
                 and_(
                     ChatParticipant.chat_id == chat_id,
@@ -31,7 +31,8 @@ class MessageService:
                 )
             )
         )
-        if not check.scalar_one_or_none():
+        participant = participant_result.scalar_one_or_none()
+        if not participant:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Bạn không có quyền xem tin nhắn này"
@@ -45,17 +46,21 @@ class MessageService:
             .where(DeletedMessage.user_id == user_id)
         )
 
+        # Build query conditions
+        conditions = [
+            Message.chat_id == chat_id,
+            ~Message.id.in_(deleted_subquery),
+        ]
+        if participant.messages_cleared_at is not None:
+            conditions.append(Message.created_at > participant.messages_cleared_at)
+
         query = (
             select(Message)
-            .where(
-                and_(
-                    Message.chat_id == chat_id,
-                    ~Message.id.in_(deleted_subquery)  # Loại bỏ tin nhắn đã bị xóa cho user này
-                )
-            )
+            .where(and_(*conditions))
             .options(
                 selectinload(Message.sender),
-                selectinload(Message.reactions).selectinload(MessageReaction.user)
+                selectinload(Message.reactions).selectinload(MessageReaction.user),
+                selectinload(Message.reply_to).selectinload(Message.sender),
             )
             .order_by(desc(Message.created_at))
             .offset(offset)
@@ -70,7 +75,10 @@ class MessageService:
             messages = messages[:limit]
         
         # Count total
-        count_query = select(func.count(Message.id)).where(Message.chat_id == chat_id)
+        count_conditions = [Message.chat_id == chat_id, ~Message.id.in_(deleted_subquery)]
+        if participant.messages_cleared_at is not None:
+            count_conditions.append(Message.created_at > participant.messages_cleared_at)
+        count_query = select(func.count(Message.id)).where(and_(*count_conditions))
         count_result = await db.execute(count_query)
         total = count_result.scalar()
         
@@ -102,6 +110,40 @@ class MessageService:
                 detail="Bạn không có quyền gửi tin nhắn"
             )
         
+        # Check block: if this is a 1-1 chat, check block in both directions
+        from ..models.block import BlockedUser
+        is_group_result = await db.execute(
+            select(Chat.is_group).where(Chat.id == chat_id)
+        )
+        is_group = is_group_result.scalar_one_or_none()
+        _silently_drop = False
+        if not is_group:
+            # Get the other participant
+            other_result = await db.execute(
+                select(ChatParticipant.user_id).where(
+                    and_(
+                        ChatParticipant.chat_id == chat_id,
+                        ChatParticipant.user_id != sender_id
+                    )
+                )
+            )
+            other_uid = other_result.scalar_one_or_none()
+            if other_uid:
+                # Check if either party blocked the other -> reject
+                block_check = await db.execute(
+                    select(BlockedUser).where(
+                        or_(
+                            and_(BlockedUser.blocker_id == other_uid, BlockedUser.blocked_id == sender_id),
+                            and_(BlockedUser.blocker_id == sender_id, BlockedUser.blocked_id == other_uid),
+                        )
+                    )
+                )
+                if block_check.scalars().first():
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Không thể gửi tin nhắn do quan hệ chặn"
+                    )
+        
         # Classify image if type is image and has image data
         image_label = None
         if message_type == "image" and media_url:
@@ -111,7 +153,6 @@ class MessageService:
                 import os
                 import base64
                 
-                print(f"[DEBUG] Starting image classification for message_type={message_type}, media_url starts with data:image: {media_url.startswith('data:image')}")
                 classifier = get_classifier()
                 
                 # Handle base64 data (from Flutter)
@@ -119,7 +160,6 @@ class MessageService:
                     # Extract base64 part
                     base64_data = media_url.split(',')[1]
                     image_data = base64.b64decode(base64_data)
-                    print(f"[DEBUG] Decoded base64 image, size: {len(image_data)} bytes")
                     
                     # Save to temp file
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
@@ -127,38 +167,26 @@ class MessageService:
                         temp_path = temp_file.name
                     
                     try:
-                        print(f"[DEBUG] Running classifier on temp file: {temp_path}")
                         predictions = classifier.predict(temp_path, top_k=1)
-                        print(f"[DEBUG] Predictions: {predictions}")
                         if predictions:
                             predicted_label = list(predictions.keys())[0]
                             # Only save label if it's one of the 5 allowed labels
                             allowed_labels = {'classroom', 'computerroom', 'library', 'corridor', 'office'}
                             if predicted_label in allowed_labels:
                                 image_label = predicted_label
-                                print(f"[DEBUG] Image label accepted: {image_label}")
-                            else:
-                                print(f"[DEBUG] Image label rejected (not in allowed list): {predicted_label}")
                     finally:
                         os.unlink(temp_path)
                 else:
                     # Assume it's a local file path
-                    print(f"[DEBUG] Running classifier on local path: {media_url}")
                     predictions = classifier.predict(media_url, top_k=1)
-                    print(f"[DEBUG] Predictions: {predictions}")
                     if predictions:
                         predicted_label = list(predictions.keys())[0]
                         # Only save label if it's one of the 5 allowed labels
                         allowed_labels = {'classroom', 'computerroom', 'library', 'corridor', 'office'}
                         if predicted_label in allowed_labels:
                             image_label = predicted_label
-                            print(f"[DEBUG] Image label accepted: {image_label}")
-                        else:
-                            print(f"[DEBUG] Image label rejected (not in allowed list): {predicted_label}")
-            except Exception as e:
-                print(f"[ERROR] Image classification failed: {e}")
-                import traceback
-                traceback.print_exc()
+            except Exception:
+                pass
         
         message = Message(
             chat_id=chat_id,
@@ -171,11 +199,11 @@ class MessageService:
         )
         db.add(message)
         
-        # Cập nhật updated_at của chat
-        chat_result = await db.execute(select(Chat).where(Chat.id == chat_id))
-        chat = chat_result.scalar_one_or_none()
-        if chat:
-            chat.updated_at = datetime.utcnow()
+        # Cập nhật updated_at của chat (dùng update trực tiếp để tránh lazy-load greenlet)
+        from sqlalchemy import update as sa_update
+        await db.execute(
+            sa_update(Chat).where(Chat.id == chat_id).values(updated_at=datetime.utcnow())
+        )
         
         await db.commit()
 
@@ -187,6 +215,7 @@ class MessageService:
             .options(
                 selectinload(Message.sender),
                 selectinload(Message.reactions).selectinload(MessageReaction.user),
+                selectinload(Message.reply_to).selectinload(Message.sender),
             )
         )
         message = reload_result.scalar_one()
@@ -230,6 +259,7 @@ class MessageService:
             .options(
                 selectinload(Message.sender),
                 selectinload(Message.reactions).selectinload(MessageReaction.user),
+                selectinload(Message.reply_to).selectinload(Message.sender),
             )
         )
         message = reload_result.scalar_one()
@@ -344,6 +374,7 @@ class MessageService:
             .options(
                 selectinload(Message.sender),
                 selectinload(Message.reactions).selectinload(MessageReaction.user),
+                selectinload(Message.reply_to).selectinload(Message.sender),
             )
             .order_by(desc(Message.created_at))
         )
@@ -407,6 +438,7 @@ class MessageService:
             .options(
                 selectinload(Message.sender),
                 selectinload(Message.reactions).selectinload(MessageReaction.user),
+                selectinload(Message.reply_to).selectinload(Message.sender),
             )
         )
         return reload_result.scalar_one()

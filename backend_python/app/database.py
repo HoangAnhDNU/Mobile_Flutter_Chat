@@ -54,7 +54,7 @@ def create_database_if_not_exists():
 # Async Engine
 engine = create_async_engine(
     settings.database_url,
-    echo=True,  # Set False in production
+    echo=False,
     pool_pre_ping=True,
     pool_recycle=3600,
 )

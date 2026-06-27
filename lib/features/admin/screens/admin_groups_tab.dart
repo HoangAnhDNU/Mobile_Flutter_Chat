@@ -70,6 +70,7 @@ class _AdminGroupsTabState extends State<AdminGroupsTab> with AutomaticKeepAlive
     );
     if (confirm != true) return;
     final ok = await ApiService.adminDeleteGroup(group['id'].toString());
+    if (!mounted) return;
     _showSnack(ok ? AppLocalizations.of(context).translate('group_disbanded') : AppLocalizations.of(context).translate('action_failed'), error: !ok);
     if (ok) _loadGroups();
   }
@@ -88,7 +89,7 @@ class _AdminGroupsTabState extends State<AdminGroupsTab> with AutomaticKeepAlive
                   child: ListView.separated(
                     padding: const EdgeInsets.all(12),
                     itemCount: _groups.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
                       final g = _groups[index] as Map<String, dynamic>;
                       return Card(

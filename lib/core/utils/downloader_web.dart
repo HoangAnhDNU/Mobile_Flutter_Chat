@@ -1,11 +1,12 @@
 // Triển khai tải file cho web bằng thẻ <a download>.
-import 'dart:html' as html;
+import 'package:web/web.dart' as web;
 
 void downloadDataUriImpl(String dataUri, String filename) {
-  final anchor = html.AnchorElement(href: dataUri)
+  final anchor = web.HTMLAnchorElement()
+    ..href = dataUri
     ..download = filename
     ..style.display = 'none';
-  html.document.body?.append(anchor);
+  web.document.body!.append(anchor);
   anchor.click();
   anchor.remove();
 }

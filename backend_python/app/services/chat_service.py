@@ -23,11 +23,12 @@ class ChatService:
         """Lấy danh sách chats của user"""
         offset = (page - 1) * limit
         
-        # Query chats mà user tham gia
+        # Query chats mà user tham gia (không hiện chat đã ẩn)
         query = (
             select(Chat)
             .join(ChatParticipant)
             .where(ChatParticipant.user_id == user_id)
+            .where(ChatParticipant.is_hidden == False)
             .options(
                 selectinload(Chat.participants).selectinload(ChatParticipant.user),
                 selectinload(Chat.messages).selectinload(Message.sender)
@@ -45,6 +46,7 @@ class ChatService:
             select(func.count(Chat.id))
             .join(ChatParticipant)
             .where(ChatParticipant.user_id == user_id)
+            .where(ChatParticipant.is_hidden == False)
         )
         count_result = await db.execute(count_query)
         total = count_result.scalar()
@@ -90,7 +92,7 @@ class ChatService:
         user_id: int,
         target_user_id: int
     ) -> Chat:
-        """Tạo chat 1-1"""
+        """Tạo chat 1-1 (cho phép tạo ngay cả khi bị chặn — tin nhắn sẽ bị drop silently)"""
         # Kiểm tra target user tồn tại
         target_result = await db.execute(select(User).where(User.id == target_user_id))
         if not target_result.scalar_one_or_none():
@@ -120,6 +122,14 @@ class ChatService:
         existing_chat = existing_result.scalar_one_or_none()
 
         if existing_chat:
+            # Reset is_hidden cho user hiện tại nếu đã ẩn chat trước đó
+            needs_update = False
+            for p in existing_chat.participants:
+                if p.user_id == user_id and p.is_hidden:
+                    p.is_hidden = False
+                    needs_update = True
+            if needs_update:
+                await db.commit()
             return existing_chat
         
         # Tạo chat mới

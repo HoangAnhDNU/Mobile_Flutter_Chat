@@ -58,16 +58,16 @@ class Message(Base):
             "id": str(self.id),
             "chat_id": str(self.chat_id),
             "sender_id": str(self.sender_id) if self.sender_id else None,
-            "content": self.content,
+            "content": "" if self.is_deleted else self.content,
             "type": self.type,
             "status": self.status,
-            "media_url": self.media_url,
-            "thumbnail_url": self.thumbnail_url,
+            "media_url": None if self.is_deleted else self.media_url,
+            "thumbnail_url": None if self.is_deleted else self.thumbnail_url,
             "reply_to_id": str(self.reply_to_id) if self.reply_to_id else None,
             "is_deleted": self.is_deleted,
             "is_pinned": self.is_pinned,
             "forwarded": self.forwarded,
-            "image_label": self.image_label,
+            "image_label": None if self.is_deleted else self.image_label,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "edited_at": self.edited_at.isoformat() if self.edited_at else None,
         }
@@ -75,6 +75,18 @@ class Message(Base):
         if include_sender and self.sender:
             data["sender_name"] = self.sender.display_name
             data["sender_avatar"] = self.sender.avatar_url
+        
+        if self.reply_to_id and self.reply_to:
+            data["reply_to_text"] = "Tin nhắn đã thu hồi" if self.reply_to.is_deleted else self.reply_to.content
+            reply_sender_name = None
+            try:
+                reply_sender_name = self.reply_to.sender.display_name if self.reply_to.sender else None
+            except Exception:
+                pass
+            data["reply_to_sender"] = reply_sender_name
+        else:
+            data["reply_to_text"] = None
+            data["reply_to_sender"] = None
         
         if include_reactions:
             data["reactions"] = [r.to_dict() for r in self.reactions]

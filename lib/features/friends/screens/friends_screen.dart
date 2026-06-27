@@ -74,6 +74,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     );
     if (email == null || email.isEmpty) return;
     final res = await ApiService.sendFriendRequest(email);
+    if (!mounted) return;
     if (res['ok'] == true) {
       _showSnack(res['message']?.toString() ?? AppLocalizations.of(context).translate('request_sent'));
     } else {
@@ -135,9 +136,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
     if (confirmed != true) return;
     try {
       await ApiService.blockUser(uid);
+      if (!mounted) return;
       _showSnack(AppLocalizations.of(context).tr('blocked_user_name', params: {'name': friend['display_name']}));
       _loadAll();
     } catch (e) {
+      if (!mounted) return;
       _showSnack(AppLocalizations.of(context).translate('block_failed_short'), error: true);
     }
   }
@@ -147,9 +150,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
     if (uid == null) return;
     try {
       await ApiService.unblockUser(uid);
+      if (!mounted) return;
       _showSnack(AppLocalizations.of(context).tr('unblocked_user_name', params: {'name': friend['display_name']}));
       _loadAll();
     } catch (e) {
+      if (!mounted) return;
       _showSnack(AppLocalizations.of(context).translate('unblock_failed_short'), error: true);
     }
   }
@@ -291,11 +296,12 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     );
                     if (confirmed != true) return;
                     final ok = await ApiService.unfriend(f['id'].toString());
+                    if (!mounted) return;
                     if (ok) {
-                      _showSnack(AppLocalizations.of(context).translate('unfriended'));
+                      _showSnack(AppLocalizations.of(this.context).translate('unfriended'));
                       _loadAll();
                     } else {
-                      _showSnack(AppLocalizations.of(context).translate('unfriend_failed'), error: true);
+                      _showSnack(AppLocalizations.of(this.context).translate('unfriend_failed'), error: true);
                     }
                   },
                 ),
@@ -351,8 +357,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   tooltip: AppLocalizations.of(context).translate('accept'),
                   onPressed: () async {
                     final ok = await ApiService.acceptFriendRequest(r['friendship_id'].toString());
+                    if (!mounted) return;
                     if (ok) {
-                      _showSnack(AppLocalizations.of(context).translate('request_accepted'));
+                      _showSnack(AppLocalizations.of(this.context).translate('request_accepted'));
                       _loadAll();
                     }
                   },
@@ -362,8 +369,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   tooltip: AppLocalizations.of(context).translate('reject'),
                   onPressed: () async {
                     final ok = await ApiService.rejectFriendRequest(r['friendship_id'].toString());
+                    if (!mounted) return;
                     if (ok) {
-                      _showSnack(AppLocalizations.of(context).translate('request_rejected'));
+                      _showSnack(AppLocalizations.of(this.context).translate('request_rejected'));
                       _loadAll();
                     }
                   },

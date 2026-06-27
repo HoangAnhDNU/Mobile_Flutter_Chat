@@ -25,6 +25,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   StreamSubscription? _messageSub;
   StreamSubscription? _deleteSub;
   StreamSubscription? _editSub;
+  final List<Map<String, dynamic>> _pendingMessages = [];
 
   ImageProvider _getImageProvider(String url) {
     final resolvedUrl = AppConfig.resolveMediaUrl(url);
@@ -40,13 +41,44 @@ class _ChatListScreenState extends State<ChatListScreen> {
     super.initState();
     _loadData();
     _messageSub = SocketService.instance.onMessage.listen((event) {
-      _loadData();
+      _handleNewMessage(event);
     });
     _deleteSub = SocketService.instance.onDelete.listen((event) {
-      _loadData();
+      final chatId = event['chatId']?.toString();
+      if (chatId == null) return;
+      final messageId = event['messageId']?.toString();
+      if (messageId == null) return;
+      setState(() {
+        final idx = _chats.indexWhere((c) {
+          final chat = c as Map<String, dynamic>;
+          return chat['id'].toString() == chatId;
+        });
+        if (idx != -1) {
+          final chat = Map<String, dynamic>.from(_chats[idx] as Map);
+          if (chat['last_message_id']?.toString() == messageId) {
+            chat['last_message'] = '[Tin nhắn đã thu hồi]';
+          }
+          _chats[idx] = chat;
+        }
+      });
     });
     _editSub = SocketService.instance.onEdit.listen((event) {
-      _loadData();
+      final chatId = event['chatId']?.toString();
+      if (chatId == null) return;
+      final msgData = event['message'] as Map<String, dynamic>?;
+      final newContent = msgData?['content']?.toString();
+      if (newContent == null) return;
+      setState(() {
+        final idx = _chats.indexWhere((c) {
+          final chat = c as Map<String, dynamic>;
+          return chat['id'].toString() == chatId;
+        });
+        if (idx != -1) {
+          final chat = Map<String, dynamic>.from(_chats[idx] as Map);
+          chat['last_message'] = newContent;
+          _chats[idx] = chat;
+        }
+      });
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
@@ -68,7 +100,48 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _loadData();
+  }
+
+  void _handleNewMessage(Map<String, dynamic> event) {
+    final chatId = event['chatId'];
+    if (chatId == null) return;
+    final msgData = event['message'] as Map<String, dynamic>?;
+    final senderName = event['senderName']?.toString() ?? '';
+    final senderUid = event['senderUid']?.toString() ?? '';
+    final text = msgData?['content']?.toString() ?? event['text']?.toString() ?? '';
+    final messageType = msgData?['type']?.toString() ?? event['messageType']?.toString() ?? 'text';
+
+    String preview;
+    if (messageType == 'image') {
+      preview = '[Hình ảnh]';
+    } else if (messageType == 'voice') {
+      preview = '[Tin nhắn thoại]';
+    } else if (messageType == 'call') {
+      preview = text;
+    } else {
+      preview = text;
+    }
+
+    if (_chats.isEmpty) {
+      _pendingMessages.add(event);
+      return;
+    }
+
+    setState(() {
+      final idx = _chats.indexWhere((c) {
+        final chat = c as Map<String, dynamic>;
+        return chat['id'].toString() == chatId.toString();
+      });
+      if (idx != -1) {
+        final chat = Map<String, dynamic>.from(_chats[idx] as Map);
+        chat['last_message'] = preview;
+        chat['last_message_time'] = DateTime.now().toIso8601String();
+        chat['last_message_sender_uid'] = senderUid;
+        chat['last_message_sender_name'] = senderName;
+        _chats.removeAt(idx);
+        _chats.insert(0, chat);
+      }
+    });
   }
 
   Future<void> _loadData() async {
@@ -78,10 +151,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
       if (authProvider.uid != null) {
         _chats = await ApiService.getChats();
       }
-    } catch (e) {
-      debugPrint('Error loading data: $e');
+    } catch (_) {}
+    if (mounted) {
+      setState(() => _isLoading = false);
+      if (_pendingMessages.isNotEmpty) {
+        for (final msg in _pendingMessages) {
+          _handleNewMessage(msg);
+        }
+        _pendingMessages.clear();
+      }
     }
-    if (mounted) setState(() => _isLoading = false);
   }
 
   @override
@@ -275,7 +354,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
             'isGroup': chat['is_group'] == true,
           },
         );
-        _loadData();
       },
     );
   }
