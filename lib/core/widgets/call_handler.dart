@@ -182,7 +182,11 @@ class _CallHandlerState extends State<CallHandler> with WidgetsBindingObserver {
       ),
     );
     final navContext = widget.navigatorKey?.currentContext ?? context;
-    Overlay.of(navContext).insert(_notificationOverlay!);
+    try {
+      Overlay.of(navContext).insert(_notificationOverlay!);
+    } catch (_) {
+      _notificationOverlay = null;
+    }
 
     Future.delayed(const Duration(seconds: 4), () {
       _notificationOverlay?.remove();

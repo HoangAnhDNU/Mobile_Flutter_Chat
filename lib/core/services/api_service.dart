@@ -164,6 +164,8 @@ class ApiService {
       'last_message_time': lastMessage?['created_at'],
       'last_message_sender_uid': lastMessage?['sender_id']?.toString() ?? '',
       'last_message_sender_name': lastMessage?['sender_name']?.toString() ?? '',
+      'last_message_forwarded': lastMessage?['forwarded'] == true,
+      'last_message_type': lastMessage?['type']?.toString() ?? 'text',
     };
   }
 
@@ -694,6 +696,27 @@ class ApiService {
       Uri.parse('$baseUrl/privacy'),
       headers: _headers,
       body: jsonEncode(settings),
+    );
+  }
+
+  // ==================== Auto Delete ====================
+
+  static Future<int?> getAutoDelete(int chatId) async {
+    try {
+      final response = await _get(Uri.parse('$baseUrl/chat/$chatId/auto-delete'), headers: _headers);
+      final data = _decode(response) as Map<String, dynamic>;
+      final v = data['auto_delete_days'];
+      return v == null ? null : (v as num).toInt();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> setAutoDelete(int chatId, int days) async {
+    await _put(
+      Uri.parse('$baseUrl/chat/$chatId/auto-delete'),
+      headers: _headers,
+      body: jsonEncode({'days': days}),
     );
   }
 

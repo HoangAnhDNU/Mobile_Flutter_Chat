@@ -54,6 +54,26 @@ class MessageService:
         if participant.messages_cleared_at is not None:
             conditions.append(Message.created_at > participant.messages_cleared_at)
 
+        # Auto-delete: actually delete (insert DeletedMessage) old messages for this user
+        if participant.auto_delete_days:
+            from datetime import timedelta
+            cutoff = datetime.utcnow() - timedelta(days=participant.auto_delete_days)
+            # Find messages older than cutoff that user hasn't already deleted
+            old_msgs_result = await db.execute(
+                select(Message.id).where(
+                    and_(
+                        Message.chat_id == chat_id,
+                        Message.created_at < cutoff,
+                        ~Message.id.in_(deleted_subquery),
+                    )
+                )
+            )
+            old_msg_ids = [mid for (mid,) in old_msgs_result.all()]
+            if old_msg_ids:
+                for mid in old_msg_ids:
+                    db.add(DeletedMessage(message_id=mid, user_id=user_id))
+                await db.commit()
+
         query = (
             select(Message)
             .where(and_(*conditions))

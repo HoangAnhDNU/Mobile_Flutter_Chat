@@ -14,7 +14,6 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   String _showLastSeen = 'everyone';
   String _showAvatar = 'everyone';
   String _showReadReceipts = 'everyone';
-  int _disappearingMessages = 0;
   bool _loading = true;
 
   @override
@@ -35,7 +34,6 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
         } else {
           _showReadReceipts = rr?.toString() ?? 'everyone';
         }
-        _disappearingMessages = data['disappearing_messages'] ?? 0;
         _loading = false;
       });
     }
@@ -90,19 +88,6 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   (v) {
                     setState(() => _showReadReceipts = v);
                     _save({'show_read_receipts': v});
-                  },
-                ),
-                const Divider(),
-                _sectionTitle(AppLocalizations.of(context).translate('disappearing_messages')),
-                _dropdownTile(
-                  AppLocalizations.of(context).translate('auto_delete_after'),
-                  _disappearingMessages.toString(),
-                  ['0', '86400', '604800', '7776000'],
-                  [AppLocalizations.of(context).translate('off'), AppLocalizations.of(context).translate('24_hours'), AppLocalizations.of(context).translate('7_days'), AppLocalizations.of(context).translate('90_days')],
-                  (v) {
-                    final val = int.tryParse(v) ?? 0;
-                    setState(() => _disappearingMessages = val);
-                    _save({'disappearing_messages': val});
                   },
                 ),
               ],

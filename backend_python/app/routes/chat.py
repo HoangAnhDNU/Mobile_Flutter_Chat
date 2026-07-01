@@ -44,9 +44,17 @@ async def get_chats(
         limit=limit
     )
     
+    # Get deleted message IDs for current user
+    from sqlalchemy import select as sa_select
+    from ..models.message import DeletedMessage
+    del_result = await db.execute(
+        sa_select(DeletedMessage.message_id).where(DeletedMessage.user_id == current_user.id)
+    )
+    deleted_ids = set(mid for (mid,) in del_result.all())
+    
     chats_data = []
     for c in chats:
-        cd = c.to_dict(current_user_id=current_user.id)
+        cd = c.to_dict(current_user_id=current_user.id, deleted_message_ids=deleted_ids)
         # Apply privacy filtering to participants
         if "participants" in cd:
             filtered = []
@@ -735,3 +743,48 @@ async def get_link_preview(
         }
     except Exception:
         return {"title": None, "description": None, "image": None, "siteName": None}
+
+
+@router.get("/{chat_id}/auto-delete")
+async def get_auto_delete(
+    chat_id: int = Path(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select as sa_select
+    from ..models.chat import ChatParticipant
+    from fastapi import HTTPException
+    result = await db.execute(
+        sa_select(ChatParticipant).where(
+            ChatParticipant.chat_id == chat_id,
+            ChatParticipant.user_id == current_user.id,
+        )
+    )
+    participant = result.scalar_one_or_none()
+    if not participant:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền truy cập")
+    return {"auto_delete_days": participant.auto_delete_days}
+
+
+@router.put("/{chat_id}/auto-delete")
+async def set_auto_delete(
+    chat_id: int = Path(...),
+    days: int = Body(..., embed=True),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select as sa_select
+    from ..models.chat import ChatParticipant
+    from fastapi import HTTPException
+    result = await db.execute(
+        sa_select(ChatParticipant).where(
+            ChatParticipant.chat_id == chat_id,
+            ChatParticipant.user_id == current_user.id,
+        )
+    )
+    participant = result.scalar_one_or_none()
+    if not participant:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền truy cập")
+    participant.auto_delete_days = days if days and days > 0 else None
+    await db.commit()
+    return {"auto_delete_days": participant.auto_delete_days}

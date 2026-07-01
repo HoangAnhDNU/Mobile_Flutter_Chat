@@ -303,6 +303,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
     String subtitle = lastMessage;
     final senderUid = chat['last_message_sender_uid']?.toString() ?? '';
     final senderName = chat['last_message_sender_name']?.toString() ?? '';
+    final isForwarded = chat['last_message_forwarded'] == true;
+    final msgType = chat['last_message_type']?.toString() ?? 'text';
+    if (msgType == 'image') {
+      subtitle = '[Hình ảnh]';
+    } else if (msgType == 'voice') {
+      subtitle = '[Tin nhắn thoại]';
+    }
+    if (isForwarded) {
+      subtitle = '↪ $subtitle';
+    }
     if (lastMessage.isNotEmpty) {
       String prefix;
       if (senderUid == myUid) {
@@ -312,7 +322,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       } else {
         prefix = displayName;
       }
-      subtitle = '$prefix: $lastMessage';
+      subtitle = '$prefix: $subtitle';
     }
 
     return ListTile(

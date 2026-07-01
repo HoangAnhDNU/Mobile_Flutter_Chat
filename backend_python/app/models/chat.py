@@ -23,7 +23,7 @@ class Chat(Base):
     participants = relationship("ChatParticipant", back_populates="chat", cascade="all, delete-orphan")
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
     
-    def to_dict(self, current_user_id: int = None, include_participants: bool = True) -> dict:
+    def to_dict(self, current_user_id: int = None, include_participants: bool = True, current_participant=None, deleted_message_ids: set = None) -> dict:
         """Chuyển đổi sang dictionary"""
         data = {
             "id": str(self.id),
@@ -43,8 +43,23 @@ class Chat(Base):
         
         # Last message (include recalled messages, show "Tin nhắn đã thu hồi")
         try:
-            if self.messages:
-                latest = max(self.messages, key=lambda m: m.created_at or datetime.min)
+            # Resolve participant for current user to apply per-user filters
+            _participant = current_participant
+            if _participant is None and current_user_id is not None:
+                try:
+                    _participant = next((p for p in self.participants if p.user_id == current_user_id), None)
+                except Exception:
+                    pass
+
+            # Build cutoff from cleared_at only (auto_delete handled via DeletedMessage)
+            cutoff = None
+            if _participant:
+                cleared = getattr(_participant, 'messages_cleared_at', None)
+                cutoff = cleared
+
+            visible_messages = [m for m in self.messages if (cutoff is None or (m.created_at and m.created_at > cutoff)) and (deleted_message_ids is None or m.id not in deleted_message_ids)]
+            latest = max(visible_messages, key=lambda m: m.created_at or datetime.min) if visible_messages else None
+            if latest is not None:
                 sender_name = None
                 try:
                     sender_name = latest.sender.display_name if latest.sender else None
@@ -57,6 +72,8 @@ class Chat(Base):
                     "sender_name": sender_name,
                     "created_at": latest.created_at.isoformat() if latest.created_at else None,
                     "is_deleted": latest.is_deleted,
+                    "forwarded": latest.forwarded,
+                    "type": latest.type,
                 }
             else:
                 data["last_message"] = None
@@ -79,6 +96,7 @@ class ChatParticipant(Base):
     is_archived = Column(Boolean, default=False)
     is_hidden = Column(Boolean, default=False)
     messages_cleared_at = Column(DateTime, nullable=True)
+    auto_delete_days = Column(Integer, nullable=True)  # 1, 7, 14; NULL = off
     joined_at = Column(DateTime, server_default=func.now())
     
     # Relationships

@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_config.dart';
 import '../../../core/constants/app_routes.dart';
@@ -70,6 +72,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   String? _peerUid;
   bool _peerBlocked = false;
   bool _theyBlockedMe = false;
+  int? _autoDeleteDays;
   StreamSubscription<Map<String, dynamic>>? _presenceSubscription;
   Timer? _typingClearTimer;
   late final AnimationController _typingController;
@@ -86,6 +89,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   String? _recordPath;
   Timer? _recordTimer;
   int _recordDuration = 0;
+  StreamSubscription<Amplitude>? _amplitudeSubscription;
+  final List<double> _amplitudes = [];
 
   ImageProvider _getImageProvider(String url) {
     final resolvedUrl = AppConfig.resolveMediaUrl(url);
@@ -355,6 +360,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           _theyBlockedMe = blockStatus['they_blocked_me'] == true;
         });
       }
+      final autoDelete = await ApiService.getAutoDelete(_chatId);
+      if (!mounted) return;
+      setState(() => _autoDeleteDays = autoDelete);
     } catch (_) {}
   }
 
@@ -446,6 +454,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     }
     SocketService.instance.leaveChat(_chatId);
     _typingClearTimer?.cancel();
+    _recordTimer?.cancel();
+    _amplitudeSubscription?.cancel();
     _messageSubscription?.cancel();
     _typingSubscription?.cancel();
     _reactionSubscription?.cancel();
@@ -456,6 +466,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     _typingController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
+    _recorder.dispose();
     super.dispose();
   }
 
@@ -633,31 +644,81 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   }
 
   Future<void> _startRecording() async {
-    if (!(await _recorder.hasPermission())) return;
-    final dir = await getTemporaryDirectory();
-    _recordPath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: _recordPath!);
-    _recordDuration = 0;
-    _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _recordDuration++);
-    });
-    setState(() => _isRecording = true);
+    try {
+      if (!(await _recorder.hasPermission())) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context).translate('mic_permission_denied'))),
+        );
+        return;
+      }
+      _recordDuration = 0;
+      _amplitudes.clear();
+
+      if (kIsWeb) {
+        await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: '');
+      } else {
+        final dir = await getTemporaryDirectory();
+        _recordPath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: _recordPath!);
+      }
+
+      _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _recordDuration++);
+      });
+      try {
+        _amplitudeSubscription = _recorder.onAmplitudeChanged(const Duration(milliseconds: 100)).listen((amp) {
+          if (mounted) {
+            final normalized = ((amp.current + 60) / 60).clamp(0.0, 1.0);
+            _amplitudes.add(normalized);
+            if (_amplitudes.length > 100) _amplitudes.removeAt(0);
+            setState(() {});
+          }
+        });
+      } catch (_) {
+        // Amplitude not supported on this platform, recording still works
+      }
+      setState(() => _isRecording = true);
+    } catch (e) {
+      debugPrint('Recording error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).tr('recording_failed', params: {'error': e}))),
+      );
+    }
   }
 
   Future<void> _stopRecordingAndSend() async {
     _recordTimer?.cancel();
-    final path = await _recorder.stop();
-    setState(() => _isRecording = false);
+    await _amplitudeSubscription?.cancel();
 
-    if (path == null || path.isEmpty) return;
-    final file = File(path);
-    if (!await file.exists()) return;
+    String voiceBase64;
+    if (kIsWeb) {
+      final blobUrl = await _recorder.stop();
+      if (blobUrl == null || blobUrl.isEmpty) {
+        setState(() => _isRecording = false);
+        return;
+      }
+      // Fetch bytes from blob URL
+      final response = await http.get(Uri.parse(blobUrl));
+      voiceBase64 = base64Encode(response.bodyBytes);
+      setState(() => _isRecording = false);
+    } else {
+      final path = await _recorder.stop();
+      setState(() => _isRecording = false);
+      if (path == null || path.isEmpty) return;
+      final file = File(path);
+      if (!await file.exists()) return;
+      final bytes = await file.readAsBytes();
+      voiceBase64 = base64Encode(bytes);
+      await file.delete();
+    }
 
-    final bytes = await file.readAsBytes();
-    final voiceBase64 = base64Encode(bytes);
     if (!mounted) return;
     final authProvider = context.read<AuthProvider>();
     if (authProvider.uid == null) return;
+
+    final audioDataUri = 'data:audio/m4a;base64,$voiceBase64';
 
     await ApiService.sendMessage(
       chatId: _chatId,
@@ -680,7 +741,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       'created_at': DateTime.now().toIso8601String(),
       'is_edited': false,
       'message_type': 'voice',
-      'imageUrl': null,
+      'imageUrl': audioDataUri,
       'image_base64': null,
       'voice_duration': _recordDuration * 1000,
       'delivery_status': 'sent',
@@ -698,17 +759,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       });
       _scrollToLatest();
     }
-    await file.delete();
   }
 
   Future<void> _cancelRecording() async {
     _recordTimer?.cancel();
-    await _recorder.stop();
-    setState(() => _isRecording = false);
-    if (_recordPath != null) {
-      final f = File(_recordPath!);
-      if (await f.exists()) await f.delete();
-    }
+    await _amplitudeSubscription?.cancel();
+    try {
+      await _recorder.stop();
+    } catch (_) {}
+    _amplitudes.clear();
+    _recordPath = null;
+    if (mounted) setState(() => _isRecording = false);
   }
 
   Future<void> _updateMessage() async {
@@ -1152,6 +1213,72 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     }
   }
 
+  void _showAutoDeleteDialog() {
+    final l10n = AppLocalizations.of(context);
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        int? selected = _autoDeleteDays;
+        return StatefulBuilder(builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: Text(l10n.translate('auto_delete_messages')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(l10n.translate('auto_delete_desc'),
+                    style: const TextStyle(fontSize: 13)),
+                const SizedBox(height: 12),
+                ...[null, 1, 7, 14].map((days) {
+                  final label = days == null
+                      ? l10n.translate('off')
+                      : l10n.tr('auto_delete_days_option', params: {'days': days});
+                  final isSelected = selected == days;
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      label,
+                      style: TextStyle(
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: isSelected ? AppColors.primary : null,
+                      ),
+                    ),
+                    trailing: isSelected ? const Icon(Icons.check, color: AppColors.primary) : null,
+                    onTap: () => setDialogState(() => selected = days),
+                  );
+                }),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(l10n.translate('cancel')),
+              ),
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  try {
+                    await ApiService.setAutoDelete(_chatId, selected ?? 0);
+                    if (!mounted) return;
+                    setState(() => _autoDeleteDays = selected);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(l10n.translate('auto_delete_saved'))),
+                    );
+                  } catch (e) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(l10n.tr('save_error', params: {'error': e}))),
+                    );
+                  }
+                },
+                child: Text(l10n.translate('save')),
+              ),
+            ],
+          );
+        });
+      },
+    );
+  }
+
   void _showClearChatConfirm() {
     showDialog(
       context: context,
@@ -1309,6 +1436,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                 case 'unblock_user':
                   _unblockUser();
                   break;
+                case 'auto_delete':
+                  _showAutoDeleteDialog();
+                  break;
               }
             },
             itemBuilder: (context) => [
@@ -1316,6 +1446,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               PopupMenuItem(value: 'toggle_mute', child: Text(_isMuted ? AppLocalizations.of(context).translate('unmute') : AppLocalizations.of(context).translate('mute'))),
               PopupMenuItem(value: 'pinned', child: Text(AppLocalizations.of(context).translate('view_pinned'))),
               PopupMenuItem(value: 'clear_chat', child: Text(AppLocalizations.of(context).translate('delete_chat'))),
+              if (!_isGroup) PopupMenuItem(value: 'auto_delete', child: Text(AppLocalizations.of(context).translate('auto_delete_messages'))),
               if (!_isGroup && _peerUid != null && !_peerBlocked) ...[
                 PopupMenuItem(
                   value: 'block_user',
@@ -1669,24 +1800,46 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               ),
             const SizedBox(height: 8),
             if (_isRecording)
-              Row(
-                children: [
-                  const Icon(Icons.fiber_manual_record, color: Colors.red, size: 16),
-                  const SizedBox(width: 8),
-                  Text(
-                    AppLocalizations.of(context).tr('recording', params: {'seconds': _recordDuration}),
-                    style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w500),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: AppColors.error),
-                    onPressed: _cancelRecording,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.send, color: AppColors.primary),
-                    onPressed: _stopRecordingAndSend,
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 10, height: 10,
+                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${_recordDuration ~/ 60}:${(_recordDuration % 60).toString().padLeft(2, '0')}',
+                      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: SizedBox(
+                        height: 32,
+                        child: CustomPaint(
+                          painter: _WaveformPainter(_amplitudes),
+                          size: Size.infinite,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: AppColors.error),
+                      onPressed: _cancelRecording,
+                      tooltip: AppLocalizations.of(context).translate('cancel'),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.send, color: AppColors.primary),
+                      onPressed: _stopRecordingAndSend,
+                      tooltip: AppLocalizations.of(context).translate('send'),
+                    ),
+                  ],
+                ),
               )
             else
               Row(
@@ -1800,4 +1953,43 @@ class _SlideInMessageState extends State<_SlideInMessage>
       ),
     );
   }
+}
+
+class _WaveformPainter extends CustomPainter {
+  final List<double> amplitudes;
+  _WaveformPainter(this.amplitudes);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.red
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    final barWidth = 3.0;
+    final gap = 2.0;
+    final totalSpace = barWidth + gap;
+    final maxBars = (size.width / totalSpace).floor();
+    final startY = size.height / 2;
+
+    final data = amplitudes.length > maxBars
+        ? amplitudes.sublist(amplitudes.length - maxBars)
+        : amplitudes;
+
+    for (var i = 0; i < data.length; i++) {
+      final x = i * totalSpace;
+      final amp = data[i];
+      final barHeight = (amp * size.height * 0.8).clamp(2.0, size.height);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(x, startY), width: barWidth, height: barHeight),
+          const Radius.circular(1.5),
+        ),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveformPainter old) => true;
 }
