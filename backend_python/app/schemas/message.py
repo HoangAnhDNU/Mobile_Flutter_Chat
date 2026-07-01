@@ -9,6 +9,8 @@ class SendMessageRequest(BaseModel):
     reply_to_id: Optional[str] = None
     type: str = "text"
     media_url: Optional[str] = None
+    mentions: Optional[List[str]] = None
+    voice_duration: Optional[int] = None
 
 
 class EditMessageRequest(BaseModel):
@@ -51,6 +53,8 @@ class MessageResponse(BaseModel):
     is_pinned: bool = False
     forwarded: bool = False
     image_label: Optional[str] = None
+    voice_duration: Optional[int] = None
+    mentions: List[str] = []
     created_at: Optional[datetime] = None
     edited_at: Optional[datetime] = None
 

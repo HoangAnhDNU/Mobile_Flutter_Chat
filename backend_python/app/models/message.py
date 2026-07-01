@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Enum
 from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy import JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -42,6 +43,8 @@ class Message(Base):
     forwarded = Column(Boolean, default=False, nullable=False)
     image_label = Column(String(50), nullable=True)
     expires_at = Column(DateTime, nullable=True)  # Disappearing messages
+    voice_duration = Column(Integer, nullable=True)  # Duration in milliseconds
+    mentions = Column(JSON, nullable=True)  # List of mentioned user IDs, or ["all"]
     created_at = Column(DateTime, server_default=func.now())
     edited_at = Column(DateTime, nullable=True)
     
@@ -68,6 +71,8 @@ class Message(Base):
             "is_pinned": self.is_pinned,
             "forwarded": self.forwarded,
             "image_label": None if self.is_deleted else self.image_label,
+            "voice_duration": self.voice_duration,
+            "mentions": self.mentions if self.mentions else [],
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "edited_at": self.edited_at.isoformat() if self.edited_at else None,
         }

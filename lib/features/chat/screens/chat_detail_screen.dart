@@ -82,6 +82,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   StreamSubscription<Map<String, dynamic>>? _deleteSubscription;
   StreamSubscription<Map<String, dynamic>>? _pinSubscription;
   StreamSubscription<void>? _connectSubscription;
+  StreamSubscription<Map<String, dynamic>>? _mentionSubscription;
 
   // Voice recording
   final AudioRecorder _recorder = AudioRecorder();
@@ -91,6 +92,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   int _recordDuration = 0;
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   final List<double> _amplitudes = [];
+
+  // Mention state
+  List<Map<String, dynamic>> _groupParticipants = [];
+  bool _showMentionList = false;
+  String _mentionQuery = '';
+  final List<String> _mentionedUids = [];
 
   ImageProvider _getImageProvider(String url) {
     final resolvedUrl = AppConfig.resolveMediaUrl(url);
@@ -177,6 +184,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           'is_deleted': msgData?['is_deleted'] == true,
           'forwarded': msgData?['forwarded'] == true,
           'image_label': msgData?['image_label'],
+          'mentions': (msgData?['mentions'] as List?)?.map((e) => e.toString()).toList() ?? [],
           'reactions': (msgData?['reactions'] as List?)
               ?.map((r) => Map<String, dynamic>.from(r as Map))
               .toList() ?? [],
@@ -315,6 +323,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       if (!mounted) return;
       _loadChatInfo();
     });
+
+    _mentionSubscription ??= SocketService.instance.onMention.listen((event) {
+      if (!mounted) return;
+      if (event['chatId']?.toString() == _chatId.toString()) {
+        final senderName = event['senderName']?.toString() ?? '';
+        final msgData = event['message'] as Map<String, dynamic>?;
+        final content = msgData?['content']?.toString() ?? '';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$senderName đã nhắc đến bạn: $content'),
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
   }
 
   Future<void> _loadChatInfo() async {
@@ -329,6 +353,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       }).toList();
       setState(() {
         _isGroup = info['is_group'] == true;
+        if (_isGroup) {
+          _groupParticipants = participants.map((p) => Map<String, dynamic>.from(p as Map)).toList();
+        }
         if (peer.isNotEmpty) {
           final p = peer.first as Map<String, dynamic>;
           _peerUid = p['id']?.toString();
@@ -463,6 +490,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     _pinSubscription?.cancel();
     _presenceSubscription?.cancel();
     _connectSubscription?.cancel();
+    _mentionSubscription?.cancel();
     _typingController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
@@ -477,7 +505,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
+    final mentionsToSend = List<String>.from(_mentionedUids);
     _messageController.clear();
+    _mentionedUids.clear();
+    _showMentionList = false;
 
     try {
       if (_replyingTo != null) {
@@ -489,6 +520,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           replyToId: _replyingTo!['id'],
           replyToText: _replyingTo!['text'] ?? '',
           replyToSender: _replyingTo!['sender_name'] ?? '',
+          mentions: mentionsToSend.isNotEmpty ? mentionsToSend : null,
         );
         setState(() {
           _replyingTo = null;
@@ -505,6 +537,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           senderName: authProvider.displayName ?? 'Unknown',
           text: text,
           messageType: 'text',
+          mentions: mentionsToSend.isNotEmpty ? mentionsToSend : null,
         );
         setState(() {
           if (sentMsg.isNotEmpty) {
@@ -538,6 +571,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
         );
       }
       _messageController.text = text;
+      _mentionedUids.addAll(mentionsToSend);
       return;
     }
   }
@@ -1325,6 +1359,149 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     });
   }
 
+  void _onInputChanged(String value) {
+    _updateTypingStatus(value.trim().isNotEmpty);
+    if (!_isGroup) return;
+    final cursorPos = _messageController.selection.baseOffset;
+    if (cursorPos < 0) return;
+    final textBeforeCursor = value.substring(0, cursorPos);
+    final atIndex = textBeforeCursor.lastIndexOf('@');
+    if (atIndex == -1) {
+      if (_showMentionList) setState(() => _showMentionList = false);
+      return;
+    }
+    final afterAt = textBeforeCursor.substring(atIndex + 1);
+    if (afterAt.contains(' ') || afterAt.contains('\n')) {
+      if (_showMentionList) setState(() => _showMentionList = false);
+      return;
+    }
+    setState(() {
+      _showMentionList = true;
+      _mentionQuery = afterAt.toLowerCase();
+    });
+  }
+
+  List<String> _resolveMentionNames(dynamic mentions) {
+    final mentionList = (mentions as List?)?.map((e) => e.toString()).toList() ?? [];
+    if (mentionList.isEmpty) return [];
+    final names = <String>[];
+    for (final m in mentionList) {
+      if (m == 'all') {
+        names.add('all');
+        continue;
+      }
+      final participant = _groupParticipants.where((p) => p['id']?.toString() == m).firstOrNull;
+      if (participant != null) {
+        names.add(participant['display_name']?.toString() ?? '');
+      }
+    }
+    return names.where((n) => n.isNotEmpty).toList();
+  }
+
+  void _selectMention(Map<String, dynamic> participant) {
+    final name = participant['display_name']?.toString() ?? 'User';
+    final uid = participant['id']?.toString() ?? '';
+    final cursorPos = _messageController.selection.baseOffset;
+    final text = _messageController.text;
+    final textBeforeCursor = text.substring(0, cursorPos < 0 ? 0 : cursorPos);
+    final atIndex = textBeforeCursor.lastIndexOf('@');
+    if (atIndex == -1) return;
+    final newText = '${text.substring(0, atIndex)}@$name ${text.substring(cursorPos < 0 ? 0 : cursorPos)}';
+    _messageController.text = newText;
+    final newCursorPos = atIndex + name.length + 2;
+    _messageController.selection = TextSelection.collapsed(offset: newCursorPos);
+    if (!_mentionedUids.contains(uid)) {
+      _mentionedUids.add(uid);
+    }
+    setState(() {
+      _showMentionList = false;
+      _mentionQuery = '';
+    });
+  }
+
+  void _selectMentionAll() {
+    final cursorPos = _messageController.selection.baseOffset;
+    final text = _messageController.text;
+    final textBeforeCursor = text.substring(0, cursorPos < 0 ? 0 : cursorPos);
+    final atIndex = textBeforeCursor.lastIndexOf('@');
+    if (atIndex == -1) return;
+    final newText = '${text.substring(0, atIndex)}@all ${text.substring(cursorPos < 0 ? 0 : cursorPos)}';
+    _messageController.text = newText;
+    final newCursorPos = atIndex + 5;
+    _messageController.selection = TextSelection.collapsed(offset: newCursorPos);
+    if (!_mentionedUids.contains('all')) {
+      _mentionedUids.add('all');
+    }
+    setState(() {
+      _showMentionList = false;
+      _mentionQuery = '';
+    });
+  }
+
+  Widget _buildMentionList() {
+    final myUid = _myUid;
+    final filtered = _groupParticipants.where((p) {
+      final pid = p['id']?.toString() ?? '';
+      if (pid == myUid) return false;
+      final name = (p['display_name']?.toString() ?? '').toLowerCase();
+      return _mentionQuery.isEmpty || name.contains(_mentionQuery);
+    }).toList();
+
+    final showAll = _mentionQuery.isEmpty || 'all'.contains(_mentionQuery);
+
+    return Material(
+      elevation: 4,
+      child: Container(
+        constraints: const BoxConstraints(maxHeight: 250),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(12),
+            topRight: Radius.circular(12),
+          ),
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (showAll)
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                  child: const Icon(Icons.group, color: AppColors.primary, size: 20),
+                ),
+                title: const Text('@all', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('Nhắc đến tất cả thành viên'),
+                onTap: _selectMentionAll,
+              ),
+            ...filtered.map((p) => ListTile(
+              leading: CircleAvatar(
+                backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                backgroundImage: (p['avatar_url']?.toString().isNotEmpty == true)
+                    ? _getImageProvider(p['avatar_url'])
+                    : null,
+                child: (p['avatar_url']?.toString().isNotEmpty != true)
+                    ? Text(
+                        (p['display_name']?.toString().isNotEmpty == true)
+                            ? p['display_name'][0].toUpperCase()
+                            : '?',
+                        style: const TextStyle(color: AppColors.primary, fontSize: 16),
+                      )
+                    : null,
+              ),
+              title: Text(p['display_name']?.toString() ?? 'User'),
+              onTap: () => _selectMention(p),
+            )),
+            if (filtered.isEmpty && !showAll)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Không tìm thấy thành viên', style: TextStyle(color: AppColors.textSecondary)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _startCall({required bool isVideo}) {
     if (_peerUid == null || _myUid == null) return;
     Navigator.push(
@@ -1490,6 +1667,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           Expanded(child: _buildMessageList()),
           if (_isPeerTyping) _buildTypingIndicator(),
           if (_replyingTo != null) _buildReplyPreview(),
+          if (_showMentionList) _buildMentionList(),
           _buildInputBar(),
         ],
       ),
@@ -1587,7 +1765,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       itemCount: _messages.length + (_isLoadingMore ? 1 : 0),
       itemBuilder: (context, index) {
         if (index >= _messages.length) {
@@ -1621,6 +1799,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           isDeleted: msg['is_deleted'] == true || msg['is_deleted'] == 1,
           forwarded: msg['forwarded'] == true,
           imageLabel: msg['image_label'],
+          mentions: (msg['mentions'] as List?)?.map((e) => e.toString()).toList() ?? [],
+          mentionNames: _resolveMentionNames(msg['mentions']),
           onLongPress: () => _showMessageOptions(msg),
           onSwipeReply: () => _setReply(msg),
         );
@@ -1864,7 +2044,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                       minLines: 1,
                       maxLines: 4,
                       textCapitalization: TextCapitalization.sentences,
-                      onChanged: (value) => _updateTypingStatus(value.trim().isNotEmpty),
+                      onChanged: _onInputChanged,
                       onSubmitted: (_) => _isEditing ? _updateMessage() : _sendMessage(),
                     ),
                   ),

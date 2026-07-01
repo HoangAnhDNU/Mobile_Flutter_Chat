@@ -112,7 +112,9 @@ class MessageService:
         content: str,
         message_type: str = "text",
         reply_to_id: Optional[int] = None,
-        media_url: Optional[str] = None
+        media_url: Optional[str] = None,
+        mentions: Optional[list] = None,
+        voice_duration: Optional[int] = None,
     ) -> Message:
         """Gửi tin nhắn"""
         # Verify sender là participant
@@ -216,6 +218,8 @@ class MessageService:
             reply_to_id=reply_to_id,
             media_url=media_url,
             image_label=image_label,
+            voice_duration=voice_duration,
+            mentions=mentions if mentions else None,
         )
         db.add(message)
         

@@ -12,7 +12,6 @@ import '../../../core/utils/time_utils.dart';
 import '../../../core/utils/downloader.dart';
 import '../../../core/utils/web_opener.dart' if (dart.library.html) '../../../core/utils/web_opener_web.dart';
 import '../screens/image_viewer_screen.dart';
-import 'link_preview.dart';
 
 class MessageBubble extends StatefulWidget {
   final String text;
@@ -35,6 +34,8 @@ class MessageBubble extends StatefulWidget {
   final int? voiceDuration;
   final VoidCallback? onSwipeReply;
   final String? imageLabel;
+  final List<String> mentions;
+  final List<String> mentionNames;
 
   const MessageBubble({
     super.key,
@@ -58,6 +59,8 @@ class MessageBubble extends StatefulWidget {
     this.voiceDuration,
     this.onSwipeReply,
     this.imageLabel,
+    this.mentions = const [],
+    this.mentionNames = const [],
   });
 
   @override
@@ -153,8 +156,11 @@ class _MessageBubbleState extends State<MessageBubble> {
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.7,
           ),
-          margin: const EdgeInsets.symmetric(vertical: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          margin: EdgeInsets.zero,
+          padding: EdgeInsets.symmetric(
+            horizontal: isDeleted ? 10 : 14,
+            vertical: isDeleted ? 6 : 10,
+          ),
           decoration: BoxDecoration(
             color: isMe ? AppColors.primary : const Color(0xFFEEEEEE),
             borderRadius: BorderRadius.only(
@@ -164,9 +170,11 @@ class _MessageBubbleState extends State<MessageBubble> {
               bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
             ),
           ),
-          child: Column(
-            crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
+          child: IntrinsicWidth(
+            child: Column(
+              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
               if (!isDeleted && replyToText != null && replyToText.isNotEmpty)
                 Container(
                   margin: const EdgeInsets.only(bottom: 6),
@@ -203,17 +211,16 @@ class _MessageBubbleState extends State<MessageBubble> {
                 ),
               if (isDeleted)
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.block, size: 15, color: isMe ? Colors.white70 : AppColors.textSecondary),
                     const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        AppLocalizations.of(context).translate('message_recalled'),
-                        style: TextStyle(
-                          color: isMe ? Colors.white70 : AppColors.textSecondary,
-                          fontStyle: FontStyle.italic,
-                          fontSize: 14,
-                        ),
+                    Text(
+                      AppLocalizations.of(context).translate('message_recalled'),
+                      style: TextStyle(
+                        color: isMe ? Colors.white70 : AppColors.textSecondary,
+                        fontStyle: FontStyle.italic,
+                        fontSize: 14,
                       ),
                     ),
                   ],
@@ -296,10 +303,10 @@ class _MessageBubbleState extends State<MessageBubble> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildTextWithLinks(text, isMe),
-                    _buildLinkPreviewIfAny(text, isMe),
                   ],
                 ),
-              const SizedBox(height: 4),
+              if (!isDeleted)
+                const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -327,10 +334,11 @@ class _MessageBubbleState extends State<MessageBubble> {
               ),
             ],
           ),
+          ),
         ),
         if (reactions.isNotEmpty && !isDeleted)
           Container(
-            margin: const EdgeInsets.only(top: 2),
+            margin: EdgeInsets.zero,
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -415,8 +423,22 @@ class _MessageBubbleState extends State<MessageBubble> {
 
   Widget _buildTextWithLinks(String text, bool isMe) {
     final urlRegex = RegExp(r'https?://[^\s]+');
-    final matches = urlRegex.allMatches(text);
-    if (matches.isEmpty) {
+    final urlMatches = urlRegex.allMatches(text);
+
+    // Find mention positions by searching for @name for each known mention name
+    final mentionPositions = <_MatchPos>[];
+    for (final name in widget.mentionNames) {
+      final searchStr = '@$name';
+      int start = 0;
+      while (true) {
+        final idx = text.indexOf(searchStr, start);
+        if (idx == -1) break;
+        mentionPositions.add(_MatchPos(idx, idx + searchStr.length));
+        start = idx + searchStr.length;
+      }
+    }
+
+    if (urlMatches.isEmpty && mentionPositions.isEmpty) {
       return Text(
         text,
         style: TextStyle(
@@ -428,7 +450,15 @@ class _MessageBubbleState extends State<MessageBubble> {
 
     final spans = <TextSpan>[];
     int lastEnd = 0;
-    for (final match in matches) {
+
+    final allMatches = <_MatchPos>[
+      ...urlMatches.map((m) => _MatchPos(m.start, m.end)),
+      ...mentionPositions,
+    ];
+    allMatches.sort((a, b) => a.start.compareTo(b.start));
+
+    for (final match in allMatches) {
+      if (match.start < lastEnd) continue;
       if (match.start > lastEnd) {
         spans.add(TextSpan(
           text: text.substring(lastEnd, match.start),
@@ -438,49 +468,61 @@ class _MessageBubbleState extends State<MessageBubble> {
           ),
         ));
       }
-      final url = match.group(0)!;
-      spans.add(TextSpan(
-        text: url,
-        style: TextStyle(
-          color: isMe ? Colors.lightBlueAccent : AppColors.primary,
-          fontSize: 15,
-          decoration: TextDecoration.underline,
-          decorationColor: isMe ? Colors.lightBlueAccent : AppColors.primary,
-          decorationThickness: 0.5,
-          height: 1.4,
-        ),
-        recognizer: TapGestureRecognizer()
-          ..onTap = () {
-            final uri = Uri.parse(url);
-            String? code;
-            if (uri.queryParameters['code'] != null) {
-              code = uri.queryParameters['code'];
-            } else if (uri.fragment.contains('code=')) {
-              final fragQuery = uri.fragment.substring(uri.fragment.indexOf('?') + 1);
-              code = Uri.splitQueryString(fragQuery)['code'];
-            }
-            if (code != null && code.isNotEmpty && uri.fragment.contains('join-group')) {
-              Navigator.pushNamed(
-                context,
-                AppRoutes.joinGroup,
-                arguments: {'code': code},
-              );
-            } else {
-              String openUrl = url;
-              if (uri.host.contains('youtube.com') && uri.queryParameters['v'] != null) {
-                openUrl = 'https://www.youtube.com/embed/${uri.queryParameters['v']}';
-              } else if (uri.host.contains('youtu.be')) {
-                final videoId = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
-                if (videoId.isNotEmpty) {
-                  openUrl = 'https://www.youtube.com/embed/$videoId';
+      final matched = text.substring(match.start, match.end);
+      final isUrl = matched.startsWith('http');
+      if (isUrl) {
+        spans.add(TextSpan(
+          text: matched,
+          style: TextStyle(
+            color: isMe ? Colors.lightBlueAccent : AppColors.primary,
+            fontSize: 15,
+            decoration: TextDecoration.underline,
+            decorationColor: isMe ? Colors.lightBlueAccent : AppColors.primary,
+            decorationThickness: 0.5,
+            height: 1.4,
+          ),
+          recognizer: TapGestureRecognizer()
+            ..onTap = () {
+              final uri = Uri.parse(matched);
+              String? code;
+              if (uri.queryParameters['code'] != null) {
+                code = uri.queryParameters['code'];
+              } else if (uri.fragment.contains('code=')) {
+                final fragQuery = uri.fragment.substring(uri.fragment.indexOf('?') + 1);
+                code = Uri.splitQueryString(fragQuery)['code'];
+              }
+              if (code != null && code.isNotEmpty && uri.fragment.contains('join-group')) {
+                Navigator.pushNamed(
+                  context,
+                  AppRoutes.joinGroup,
+                  arguments: {'code': code},
+                );
+              } else {
+                String openUrl = matched;
+                if (uri.host.contains('youtube.com') && uri.queryParameters['v'] != null) {
+                  openUrl = 'https://www.youtube.com/embed/${uri.queryParameters['v']}';
+                } else if (uri.host.contains('youtu.be')) {
+                  final videoId = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
+                  if (videoId.isNotEmpty) {
+                    openUrl = 'https://www.youtube.com/embed/$videoId';
+                  }
+                }
+                if (kIsWeb) {
+                  _openInNewTab(openUrl);
                 }
               }
-              if (kIsWeb) {
-                _openInNewTab(openUrl);
-              }
-            }
-          },
-      ));
+            },
+        ));
+      } else {
+        spans.add(TextSpan(
+          text: matched,
+          style: TextStyle(
+            color: isMe ? const Color(0xFFBBDEFB) : AppColors.primary,
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+          ),
+        ));
+      }
       lastEnd = match.end;
     }
     if (lastEnd < text.length) {
@@ -496,13 +538,6 @@ class _MessageBubbleState extends State<MessageBubble> {
     return Text.rich(
       TextSpan(children: spans),
     );
-  }
-
-  Widget _buildLinkPreviewIfAny(String text, bool isMe) {
-    final urlRegex = RegExp(r'https?://[^\s]+');
-    final match = urlRegex.firstMatch(text);
-    if (match == null) return const SizedBox.shrink();
-    return LinkPreview(url: match.group(0)!, isMe: isMe);
   }
 
   List<Widget> _buildReactionChips() {
@@ -599,6 +634,12 @@ class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
     );
   }
 
+  String _formatDuration(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds.remainder(60);
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final fg = widget.isMe ? Colors.white : AppColors.primary;
@@ -626,6 +667,14 @@ class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
           ),
         ),
         const SizedBox(width: 8),
+        Text(
+          _formatDuration(total),
+          style: TextStyle(
+            fontSize: 12,
+            color: widget.isMe ? Colors.white70 : AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(width: 8),
         GestureDetector(
           onTap: _download,
           child: Icon(Icons.download, size: 18, color: widget.isMe ? Colors.white70 : AppColors.textSecondary),
@@ -633,4 +682,10 @@ class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
       ],
     );
   }
+}
+
+class _MatchPos {
+  final int start;
+  final int end;
+  _MatchPos(this.start, this.end);
 }

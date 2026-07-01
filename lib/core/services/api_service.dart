@@ -105,7 +105,7 @@ class ApiService {
       'message_type': m['type'] ?? 'text',
       'imageUrl': m['media_url'],
       'image_base64': null,
-      'voice_duration': 0,
+      'voice_duration': m['voice_duration'] ?? 0,
       'delivery_status': m['status'] ?? 'sent',
       'reply_to_text': m['reply_to_text'],
       'reply_to_sender': m['reply_to_sender'],
@@ -113,6 +113,10 @@ class ApiService {
       'is_deleted': m['is_deleted'] == true,
       'forwarded': m['forwarded'] == true,
       'image_label': m['image_label'],
+      'mentions': (m['mentions'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
       'reactions': (m['reactions'] as List?)
               ?.map((r) => Map<String, dynamic>.from(r as Map))
               .toList() ??
@@ -409,6 +413,7 @@ class ApiService {
     String? imageBase64,
     String? voiceBase64,
     int? voiceDuration,
+    List<String>? mentions,
   }) async {
     // Backend yêu cầu content tối thiểu 1 ký tự.
     final content = text.isNotEmpty
@@ -432,6 +437,8 @@ class ApiService {
         'content': content,
         'type': messageType,
         if (mediaUrl != null) 'media_url': mediaUrl,
+        if (mentions != null && mentions.isNotEmpty) 'mentions': mentions,
+        if (voiceDuration != null) 'voice_duration': voiceDuration,
       }),
     );
     final data = _decode(response) as Map<String, dynamic>;
@@ -453,6 +460,7 @@ class ApiService {
     int? replyToId,
     String? replyToText,
     String? replyToSender,
+    List<String>? mentions,
   }) async {
     final content = text.isNotEmpty ? text : ' ';
     final response = await _post(
@@ -462,6 +470,8 @@ class ApiService {
         'content': content,
         'type': messageType,
         if (replyToId != null) 'reply_to_id': replyToId.toString(),
+        if (mentions != null && mentions.isNotEmpty) 'mentions': mentions,
+        if (voiceDuration != null) 'voice_duration': voiceDuration,
       }),
     );
     final data = _decode(response) as Map<String, dynamic>;

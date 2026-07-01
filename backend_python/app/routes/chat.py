@@ -291,6 +291,8 @@ async def send_message(
         message_type=request.type,
         reply_to_id=int(request.reply_to_id) if request.reply_to_id else None,
         media_url=request.media_url,
+        mentions=request.mentions,
+        voice_duration=request.voice_duration,
     )
 
     message_data = message.to_dict()
@@ -302,6 +304,18 @@ async def send_message(
         sa_select(ChatParticipant.user_id).where(ChatParticipant.chat_id == chat_id)
     )
     participant_ids = [uid for (uid,) in participants_result.all()]
+
+    # Determine which users should receive a mention notification
+    mention_uids = set()
+    if request.mentions:
+        if "all" in request.mentions:
+            mention_uids = {uid for uid in participant_ids if uid != current_user.id}
+        else:
+            for m in request.mentions:
+                try:
+                    mention_uids.add(int(m))
+                except (ValueError, TypeError):
+                    pass
 
     for uid in participant_ids:
         if uid != current_user.id:
@@ -315,6 +329,18 @@ async def send_message(
                 },
                 room=f"user_{uid}",
             )
+            # Emit mention notification if this user was mentioned
+            if uid in mention_uids:
+                await sio.emit(
+                    "mention_notification",
+                    {
+                        "chatId": chat_id,
+                        "senderUid": str(current_user.id),
+                        "senderName": current_user.display_name,
+                        "message": message_data,
+                    },
+                    room=f"user_{uid}",
+                )
 
     return {
         "message": message_data,

@@ -30,6 +30,7 @@ class SocketService {
   final _callIceController = StreamController<Map<String, dynamic>>.broadcast();
   final _callEndController = StreamController<Map<String, dynamic>>.broadcast();
   final _callRejectController = StreamController<Map<String, dynamic>>.broadcast();
+  final _mentionController = StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get onMessage => _messageController.stream;
   Stream<Map<String, dynamic>> get onTyping => _typingController.stream;
@@ -45,6 +46,7 @@ class SocketService {
   Stream<Map<String, dynamic>> get onCallIce => _callIceController.stream;
   Stream<Map<String, dynamic>> get onCallEnd => _callEndController.stream;
   Stream<Map<String, dynamic>> get onCallReject => _callRejectController.stream;
+  Stream<Map<String, dynamic>> get onMention => _mentionController.stream;
 
   Map<String, bool> get presenceCache => _presenceCache;
 
@@ -122,6 +124,7 @@ class SocketService {
         ..on('call_ice_candidate', (data) => _callIceController.add(_toMap(data)))
         ..on('call_end', (data) => _callEndController.add(_toMap(data)))
         ..on('call_reject', (data) => _callRejectController.add(_toMap(data)))
+        ..on('mention_notification', (data) => _mentionController.add(_toMap(data)))
         ..onDisconnect((_) {
           _isConnected = false;
         })
@@ -272,6 +275,7 @@ class SocketService {
     _callIceController.close();
     _callEndController.close();
     _callRejectController.close();
+    _mentionController.close();
     _instance = null;
   }
 }

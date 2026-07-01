@@ -102,6 +102,8 @@ async def init_db():
         "ALTER TABLE messages ADD COLUMN image_label VARCHAR(50) NULL",
         "ALTER TABLE messages ADD COLUMN expires_at DATETIME NULL",
         "ALTER TABLE messages ADD COLUMN forwarded TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE messages ADD COLUMN mentions JSON NULL",
+        "ALTER TABLE messages ADD COLUMN voice_duration INT NULL",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:

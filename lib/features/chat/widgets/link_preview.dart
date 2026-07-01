@@ -72,7 +72,7 @@ class _LinkPreviewState extends State<LinkPreview>
     }
 
     return Container(
-      margin: const EdgeInsets.only(top: 8),
+      margin: EdgeInsets.zero,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
@@ -91,7 +91,7 @@ class _LinkPreviewState extends State<LinkPreview>
               constraints: const BoxConstraints(maxHeight: 160),
               child: CachedNetworkImage(
                 imageUrl: image,
-                width: double.infinity,
+                width: 200,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   height: 120,
@@ -170,42 +170,6 @@ class _LinkPreviewState extends State<LinkPreview>
   }
 
   Widget _buildSkeleton() {
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: widget.isMe
-            ? Colors.white.withValues(alpha: 0.1)
-            : AppColors.textSecondary.withValues(alpha: 0.05),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            height: 12,
-            decoration: BoxDecoration(
-              color: widget.isMe
-                  ? Colors.white.withValues(alpha: 0.2)
-                  : AppColors.textSecondary.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            width: 180,
-            height: 10,
-            decoration: BoxDecoration(
-              color: widget.isMe
-                  ? Colors.white.withValues(alpha: 0.15)
-                  : AppColors.textSecondary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-        ],
-      ),
-    );
+    return const SizedBox.shrink();
   }
 }
