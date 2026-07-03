@@ -105,6 +105,10 @@ async def init_db():
         "ALTER TABLE messages ADD COLUMN mentions JSON NULL",
         "ALTER TABLE messages ADD COLUMN voice_duration INT NULL",
         "ALTER TABLE messages ADD COLUMN fake_news_label VARCHAR(50) NULL",
+        "ALTER TABLE chat_participants ADD COLUMN messages_cleared_at DATETIME NULL",
+        "ALTER TABLE chat_participants ADD COLUMN auto_delete_days INT NULL",
+        "ALTER TABLE chat_participants ADD COLUMN is_hidden TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE chat_participants ADD COLUMN is_archived TINYINT(1) NOT NULL DEFAULT 0",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:

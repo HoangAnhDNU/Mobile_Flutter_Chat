@@ -45,7 +45,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   List<dynamic> _pinnedMessages = [];
   bool _isLoading = false;
   bool _isSearching = false;
-  bool _showMoreActions = false;
   int _currentPage = 1;
   bool _hasMoreMessages = true;
   bool _isLoadingMore = false;
@@ -92,6 +91,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   int _recordDuration = 0;
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   final List<double> _amplitudes = [];
+
+  final GlobalKey _attachButtonKey = GlobalKey();
 
   // Mention state
   List<Map<String, dynamic>> _groupParticipants = [];
@@ -381,17 +382,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           }
         }
       });
-      if (_peerUid != null) {
-        final blockStatus = await ApiService.checkBlockStatus(_peerUid!);
-        if (!mounted) return;
-        setState(() {
-          _peerBlocked = blockStatus['i_blocked_them'] == true;
-          _theyBlockedMe = blockStatus['they_blocked_me'] == true;
-        });
-      }
-      final autoDelete = await ApiService.getAutoDelete(_chatId);
+      // Chạy song song block status + auto-delete
+      final results = await Future.wait([
+        _peerUid != null ? ApiService.checkBlockStatus(_peerUid!) : Future.value({'i_blocked_them': false, 'they_blocked_me': false}),
+        ApiService.getAutoDelete(_chatId),
+      ]);
       if (!mounted) return;
-      setState(() => _autoDeleteDays = autoDelete);
+      final blockStatus = results[0] as Map<String, dynamic>;
+      final autoDelete = results[1] as int;
+      setState(() {
+        _peerBlocked = blockStatus['i_blocked_them'] == true;
+        _theyBlockedMe = blockStatus['they_blocked_me'] == true;
+        _autoDeleteDays = autoDelete;
+      });
     } catch (_) {}
   }
 
@@ -652,8 +655,61 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     }
   }
 
-  void _showImageSourcePicker() {
-    setState(() => _showMoreActions = !_showMoreActions);
+  void _toggleAttachMenu() {
+    final RenderBox? box = _attachButtonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final Offset position = box.localToGlobal(Offset.zero);
+    final Size size = box.size;
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy - 180,
+        position.dx + size.width + 120,
+        position.dy,
+      ),
+      items: [
+        PopupMenuItem<String>(
+          value: 'gallery',
+          child: Row(
+            children: [
+              const Icon(Icons.photo_library_outlined, size: 20, color: AppColors.primary),
+              const SizedBox(width: 12),
+              Text(AppLocalizations.of(context).translate('from_gallery')),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'camera',
+          child: Row(
+            children: [
+              const Icon(Icons.photo_camera_outlined, size: 20, color: AppColors.primary),
+              const SizedBox(width: 12),
+              Text(AppLocalizations.of(context).translate('take_photo')),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'record',
+          child: Row(
+            children: [
+              const Icon(Icons.mic_none, size: 20, color: AppColors.primary),
+              const SizedBox(width: 12),
+              Text(AppLocalizations.of(context).translate('record')),
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == 'gallery') {
+        _sendImage(ImageSource.gallery);
+      } else if (value == 'camera') {
+        _captureFromCamera();
+      } else if (value == 'record') {
+        _startRecording();
+      }
+    });
   }
 
   Future<void> _startRecording() async {
@@ -1550,10 +1606,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () => setState(() => _isSearching = !_isSearching),
-          ),
           if (!_isGroup) ...[
             IconButton(
               icon: const Icon(Icons.call),
@@ -1570,6 +1622,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
               switch (value) {
+                case 'search':
+                  setState(() => _isSearching = !_isSearching);
+                  break;
                 case 'group_settings':
                   Navigator.pushNamed(context, '/group-settings', arguments: {'chatId': _chatId});
                   break;
@@ -1599,6 +1654,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
               }
             },
             itemBuilder: (context) => [
+              PopupMenuItem(value: 'search', child: Text(AppLocalizations.of(context).translate('search_messages').replaceAll('...', ''))),
               if (_isGroup) PopupMenuItem(value: 'group_settings', child: Text(AppLocalizations.of(context).translate('group_settings'))),
               PopupMenuItem(value: 'toggle_mute', child: Text(_isMuted ? AppLocalizations.of(context).translate('unmute') : AppLocalizations.of(context).translate('mute'))),
               PopupMenuItem(value: 'pinned', child: Text(AppLocalizations.of(context).translate('view_pinned'))),
@@ -1914,51 +1970,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.tonalIcon(
-                        onPressed: _isEditing ? _cancelEditing : () => _sendImage(ImageSource.gallery),
-                        icon: const Icon(Icons.photo_library_outlined, size: 18),
-                        label: Text(AppLocalizations.of(context).translate('from_gallery')),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed: _isEditing ? _cancelEditing : _captureFromCamera,
-                        icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                        label: Text(AppLocalizations.of(context).translate('take_photo')),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed: _isRecording ? null : _startRecording,
-                        icon: const Icon(Icons.mic_none, size: 18),
-                        label: Text(AppLocalizations.of(context).translate('record')),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(
-                    _showMoreActions ? Icons.expand_less : Icons.more_horiz,
-                    color: AppColors.primary,
-                  ),
-                  onPressed: _showImageSourcePicker,
-                ),
-              ],
-            ),
-            if (_showMoreActions)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    AppLocalizations.of(context).translate('more_actions_hint'),
-                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary.withValues(alpha: 0.8)),
-                  ),
-                ),
-              ),
             const SizedBox(height: 8),
             if (_isRecording)
               Container(
@@ -2009,6 +2020,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
                     IconButton(
                       icon: const Icon(Icons.close, color: AppColors.error),
                       onPressed: _cancelEditing,
+                    ),
+                  if (!_isEditing)
+                    IconButton(
+                      key: _attachButtonKey,
+                      icon: Icon(
+                        Icons.add_circle_outline,
+                        color: AppColors.primary,
+                      ),
+                      onPressed: _toggleAttachMenu,
                     ),
                   Expanded(
                     child: TextField(

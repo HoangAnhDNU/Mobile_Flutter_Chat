@@ -1,12 +1,8 @@
 import 'dart:async';
-import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../constants/app_config.dart';
-
-@JS('console.log')
-external void jsConsoleLog(String message);
 
 class SocketService {
   static SocketService? _instance;
@@ -84,7 +80,7 @@ class SocketService {
       _socket!
         ..onAny((event, data) {
           if (kIsWeb && event.startsWith('call_')) {
-            jsConsoleLog('[SOCKET onAny] event=$event');
+            debugPrint('[SOCKET onAny] event=$event');
           }
         })
         ..onConnect((_) {
@@ -116,7 +112,7 @@ class SocketService {
         ..on('call_offer', (data) {
           // Also log to browser console for web debugging
           if (kIsWeb) {
-            jsConsoleLog('[CALL] Received call_offer from ${data is Map ? data['fromUid'] : data}');
+            debugPrint('[CALL] Received call_offer from ${data is Map ? data['fromUid'] : data}');
           }
           _callOfferController.add(_toMap(data));
         })

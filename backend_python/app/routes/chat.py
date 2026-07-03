@@ -612,6 +612,8 @@ async def delete_chat(
     from sqlalchemy import select, and_
     from ..models.chat import ChatParticipant
     from datetime import datetime
+    import logging
+    logger = logging.getLogger(__name__)
 
     participant = (await db.execute(
         select(ChatParticipant).where(
@@ -625,8 +627,9 @@ async def delete_chat(
         raise HTTPException(status_code=403, detail="Bạn không có quyền với cuộc trò chuyện này")
 
     participant.is_hidden = True
-    participant.messages_cleared_at = datetime.utcnow()
+    participant.messages_cleared_at = datetime.now()
     await db.commit()
+    logger.info(f"delete_chat: chat_id={chat_id}, user_id={current_user.id}, messages_cleared_at={participant.messages_cleared_at}, is_hidden={participant.is_hidden}")
     return {"message": "Đã xóa cuộc trò chuyện"}
 
 

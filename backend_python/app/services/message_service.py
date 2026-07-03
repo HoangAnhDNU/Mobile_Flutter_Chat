@@ -53,11 +53,13 @@ class MessageService:
         ]
         if participant.messages_cleared_at is not None:
             conditions.append(Message.created_at > participant.messages_cleared_at)
+            import logging
+            logging.getLogger(__name__).info(f"get_messages: chat_id={chat_id}, user_id={user_id}, messages_cleared_at={participant.messages_cleared_at}, auto_delete_days={participant.auto_delete_days}")
 
         # Auto-delete: actually delete (insert DeletedMessage) old messages for this user
         if participant.auto_delete_days:
             from datetime import timedelta
-            cutoff = datetime.utcnow() - timedelta(days=participant.auto_delete_days)
+            cutoff = datetime.now() - timedelta(days=participant.auto_delete_days)
             # Find messages older than cutoff that user hasn't already deleted
             old_msgs_result = await db.execute(
                 select(Message.id).where(

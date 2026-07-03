@@ -4,7 +4,7 @@ class AppConfig {
   static const int serverPort = 3000;
 
   // Cấu hình IP máy chủ cho real device (thay IP LAN của bạn)
-  static const String lanHost = '192.168.61.219';
+  static const String lanHost = '192.168.0.101';
 
   static String get serverHost {
     if (kIsWeb) {

@@ -519,9 +519,12 @@ class ApiService {
 
   static Future<bool> deleteChat(int chatId) async {
     try {
+      debugPrint('deleteChat: calling $baseUrl/chat/$chatId');
       final response = await _delete(Uri.parse('$baseUrl/chat/$chatId'), headers: _headers);
+      debugPrint('deleteChat: status=${response.statusCode}, body=${response.body}');
       return response.statusCode == 200;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('deleteChat: ERROR $e');
       return true;
     }
   }
