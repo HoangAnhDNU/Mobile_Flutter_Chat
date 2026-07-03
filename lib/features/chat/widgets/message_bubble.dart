@@ -34,6 +34,7 @@ class MessageBubble extends StatefulWidget {
   final int? voiceDuration;
   final VoidCallback? onSwipeReply;
   final String? imageLabel;
+  final String? fakeNewsLabel;
   final List<String> mentions;
   final List<String> mentionNames;
 
@@ -59,6 +60,7 @@ class MessageBubble extends StatefulWidget {
     this.voiceDuration,
     this.onSwipeReply,
     this.imageLabel,
+    this.fakeNewsLabel,
     this.mentions = const [],
     this.mentionNames = const [],
   });
@@ -259,6 +261,37 @@ class _MessageBubbleState extends State<MessageBubble> {
                             color: isMe ? Colors.white70 : AppColors.textSecondary,
                             fontStyle: FontStyle.italic,
                           ),
+                        ),
+                      ),
+                    if (widget.fakeNewsLabel != null && widget.fakeNewsLabel!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              widget.fakeNewsLabel == 'True'
+                                  ? Icons.verified_rounded
+                                  : Icons.warning_amber_rounded,
+                              size: 14,
+                              color: widget.fakeNewsLabel == 'True'
+                                  ? (isMe ? Colors.white70 : Colors.green)
+                                  : Colors.orangeAccent,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Fake news: ${widget.fakeNewsLabel!}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: widget.fakeNewsLabel == 'True'
+                                      ? (isMe ? Colors.white70 : Colors.green)
+                                      : Colors.orangeAccent,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],

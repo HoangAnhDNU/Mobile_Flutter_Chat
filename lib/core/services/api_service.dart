@@ -113,6 +113,7 @@ class ApiService {
       'is_deleted': m['is_deleted'] == true,
       'forwarded': m['forwarded'] == true,
       'image_label': m['image_label'],
+      'fake_news_label': m['fake_news_label'],
       'mentions': (m['mentions'] as List?)
               ?.map((e) => e.toString())
               .toList() ??

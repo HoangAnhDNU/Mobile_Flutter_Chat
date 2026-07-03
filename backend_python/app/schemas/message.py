@@ -54,6 +54,7 @@ class MessageResponse(BaseModel):
     forwarded: bool = False
     image_label: Optional[str] = None
     voice_duration: Optional[int] = None
+    fake_news_label: Optional[str] = None
     mentions: List[str] = []
     created_at: Optional[datetime] = None
     edited_at: Optional[datetime] = None

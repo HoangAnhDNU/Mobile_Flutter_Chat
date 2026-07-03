@@ -168,14 +168,17 @@ class MessageService:
         
         # Classify image if type is image and has image data
         image_label = None
+        fake_news_label = None
         if message_type == "image" and media_url:
             try:
                 from .image_classifier import get_classifier
+                from .fake_news_classifier import get_fake_news_classifier
                 import tempfile
                 import os
                 import base64
                 
                 classifier = get_classifier()
+                fake_news_clf = get_fake_news_classifier()
                 
                 # Handle base64 data (from Flutter)
                 if media_url.startswith('data:image'):
@@ -196,6 +199,11 @@ class MessageService:
                             allowed_labels = {'classroom', 'computerroom', 'library', 'corridor', 'office'}
                             if predicted_label in allowed_labels:
                                 image_label = predicted_label
+                        
+                        # Fake news detection (6-way)
+                        fake_predictions = fake_news_clf.predict(temp_path)
+                        if fake_predictions:
+                            fake_news_label = list(fake_predictions.keys())[0]
                     finally:
                         os.unlink(temp_path)
                 else:
@@ -207,6 +215,11 @@ class MessageService:
                         allowed_labels = {'classroom', 'computerroom', 'library', 'corridor', 'office'}
                         if predicted_label in allowed_labels:
                             image_label = predicted_label
+                    
+                    # Fake news detection (6-way)
+                    fake_predictions = fake_news_clf.predict(media_url)
+                    if fake_predictions:
+                        fake_news_label = list(fake_predictions.keys())[0]
             except Exception:
                 pass
         
@@ -218,6 +231,7 @@ class MessageService:
             reply_to_id=reply_to_id,
             media_url=media_url,
             image_label=image_label,
+            fake_news_label=fake_news_label,
             voice_duration=voice_duration,
             mentions=mentions if mentions else None,
         )

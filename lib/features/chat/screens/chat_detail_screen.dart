@@ -184,6 +184,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           'is_deleted': msgData?['is_deleted'] == true,
           'forwarded': msgData?['forwarded'] == true,
           'image_label': msgData?['image_label'],
+          'fake_news_label': msgData?['fake_news_label'],
           'mentions': (msgData?['mentions'] as List?)?.map((e) => e.toString()).toList() ?? [],
           'reactions': (msgData?['reactions'] as List?)
               ?.map((r) => Map<String, dynamic>.from(r as Map))
@@ -281,6 +282,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
             msg['imageUrl'] = null;
             msg['image_base64'] = null;
             msg['image_label'] = null;
+            msg['fake_news_label'] = null;
             _messages[idx] = msg;
           }
         });
@@ -622,7 +624,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     try {
       final base64Image = base64Encode(bytes);
 
-      await ApiService.sendMessage(
+      final sentMsg = await ApiService.sendMessage(
         chatId: _chatId,
         senderUid: authProvider.uid!,
         senderName: authProvider.displayName ?? 'Unknown',
@@ -631,33 +633,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
         imageBase64: base64Image,
       );
 
-      final tempId = DateTime.now().millisecondsSinceEpoch;
-
-      final newMsg = <String, dynamic>{
-        'id': tempId,
-        'text': '',
-        'sender_uid': authProvider.uid!,
-        'sender_name': authProvider.displayName ?? 'Unknown',
-        'sender_avatar': authProvider.avatarUrl,
-        'created_at': DateTime.now().toIso8601String(),
-        'is_edited': false,
-        'message_type': 'image',
-        'imageUrl': 'data:image/png;base64,$base64Image',
-        'image_base64': null,
-        'voice_duration': 0,
-        'delivery_status': 'sent',
-        'reply_to_text': null,
-        'reply_to_sender': null,
-        'is_pinned': false,
-        'is_deleted': false,
-        'forwarded': false,
-        'image_label': null,
-        'reactions': [],
-      };
-      if (mounted) {
+      if (mounted && sentMsg.isNotEmpty) {
         setState(() {
-          _newMessageIds.add(tempId.toString());
-          _messages.insert(0, newMsg);
+          _newMessageIds.add(sentMsg['id'].toString());
+          _messages.insert(0, sentMsg);
         });
         _scrollToLatest();
       }
@@ -785,6 +764,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       'is_deleted': false,
       'forwarded': false,
       'image_label': null,
+      'fake_news_label': null,
       'reactions': [],
     };
     if (mounted) {
@@ -1799,6 +1779,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           isDeleted: msg['is_deleted'] == true || msg['is_deleted'] == 1,
           forwarded: msg['forwarded'] == true,
           imageLabel: msg['image_label'],
+          fakeNewsLabel: msg['fake_news_label'],
           mentions: (msg['mentions'] as List?)?.map((e) => e.toString()).toList() ?? [],
           mentionNames: _resolveMentionNames(msg['mentions']),
           onLongPress: () => _showMessageOptions(msg),
