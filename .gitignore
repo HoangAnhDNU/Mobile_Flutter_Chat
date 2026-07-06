@@ -66,3 +66,4 @@ app.*.map.json
 
 # Environment files
 .env
+/.cursor
