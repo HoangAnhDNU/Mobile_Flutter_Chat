@@ -2,6 +2,7 @@
 .agent
 .github
 .gemini
+.cursor
 
 .env
 .local
