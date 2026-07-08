@@ -504,9 +504,10 @@ class _AddMembersScreenState extends State<_AddMembersScreen> {
 
   Future<void> _loadUsers() async {
     try {
-      final users = await ApiService.getUsers();
+      // Chỉ lấy danh sách bạn bè — thêm thành viên chỉ được thêm người đã kết bạn
+      final friends = await ApiService.getFriends();
       setState(() {
-        _users = users.where((u) => !widget.excludeIds.contains(u['uid'])).toList();
+        _users = friends.where((u) => !widget.excludeIds.contains(u['uid'])).toList();
       });
     } catch (e) {
       debugPrint('Error loading users: $e');

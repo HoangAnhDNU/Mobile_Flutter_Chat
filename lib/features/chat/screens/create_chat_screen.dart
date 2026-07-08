@@ -34,7 +34,8 @@ class _CreateChatScreenState extends State<CreateChatScreen> {
   Future<void> _loadUsers() async {
     setState(() => _isLoading = true);
     try {
-      _users = await ApiService.getUsers();
+      // Chỉ lấy danh sách bạn bè — tạo nhóm chỉ được thêm người đã kết bạn
+      _users = await ApiService.getFriends();
     } catch (e) {
       debugPrint('Error loading users: $e');
     }

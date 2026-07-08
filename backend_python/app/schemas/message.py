@@ -5,7 +5,7 @@ from datetime import datetime
 
 class SendMessageRequest(BaseModel):
     """Schema gửi tin nhắn"""
-    content: str = Field(..., min_length=1)
+    content: Optional[str] = Field(None)  # None cho voice/image, text cho text message
     reply_to_id: Optional[str] = None
     type: str = "text"
     media_url: Optional[str] = None

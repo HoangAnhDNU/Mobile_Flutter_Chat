@@ -159,6 +159,62 @@ async def create_group_chat(
     }
 
 
+@router.put("/{chat_id}", response_model=dict)
+async def update_group(
+    chat_id: int = Path(...),
+    request: UpdateGroupRequest = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Cập nhật tên / avatar nhóm — chỉ admin mới được sửa."""
+    from sqlalchemy import select as sa_select
+    from sqlalchemy.orm import selectinload
+    from ..models.chat import Chat, ChatParticipant
+    from fastapi import HTTPException
+
+    # Verify current user is admin of this group
+    admin_check = await db.execute(
+        sa_select(ChatParticipant).where(
+            ChatParticipant.chat_id == chat_id,
+            ChatParticipant.user_id == current_user.id,
+            ChatParticipant.role == "admin"
+        )
+    )
+    if not admin_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Chỉ trưởng nhóm mới được cập nhật thông tin nhóm")
+
+    # Get chat
+    chat_result = await db.execute(
+        sa_select(Chat).where(Chat.id == chat_id)
+    )
+    chat = chat_result.scalar_one_or_none()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhóm")
+    if not chat.is_group:
+        raise HTTPException(status_code=400, detail="Cuộc trò chuyện này không phải nhóm")
+
+    # Apply updates
+    if request:
+        if request.name is not None and request.name.strip():
+            chat.name = request.name.strip()
+        if request.avatar_url is not None:
+            chat.avatar_url = request.avatar_url
+
+    await db.commit()
+
+    # Re-query with eager loading
+    reload_result = await db.execute(
+        sa_select(Chat)
+        .options(
+            selectinload(Chat.participants).selectinload(ChatParticipant.user),
+            selectinload(Chat.messages).selectinload(Message.sender),
+        )
+        .where(Chat.id == chat_id)
+    )
+    chat = reload_result.scalar_one()
+    return {"chat": chat.to_dict(current_user_id=current_user.id)}
+
+
 @router.post("/{chat_id}/participants", response_model=dict)
 async def add_participants(
     request: AddParticipantsRequest,

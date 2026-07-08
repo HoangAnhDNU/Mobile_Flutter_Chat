@@ -416,14 +416,9 @@ class ApiService {
     int? voiceDuration,
     List<String>? mentions,
   }) async {
-    // Backend yêu cầu content tối thiểu 1 ký tự.
-    final content = text.isNotEmpty
-        ? text
-        : (messageType == 'image'
-            ? '[Hình ảnh]'
-            : messageType == 'voice'
-                ? '[Tin nhắn thoại]'
-                : ' ');
+    // Voice/image messages: send content=null so backend generates proper placeholder.
+    // Backend no longer requires min_length=1 after fix.
+    final content = text.isNotEmpty ? text : null;
     // Ảnh/âm thanh được lưu dưới dạng data URI base64 trong media_url.
     String? mediaUrl;
     if (messageType == 'image' && imageBase64 != null) {
@@ -435,7 +430,7 @@ class ApiService {
       Uri.parse('$baseUrl/chat/$chatId/messages'),
       headers: _headers,
       body: jsonEncode({
-        'content': content,
+        if (content != null) 'content': content,
         'type': messageType,
         if (mediaUrl != null) 'media_url': mediaUrl,
         if (mentions != null && mentions.isNotEmpty) 'mentions': mentions,
@@ -463,12 +458,13 @@ class ApiService {
     String? replyToSender,
     List<String>? mentions,
   }) async {
-    final content = text.isNotEmpty ? text : ' ';
+    // Send null for empty content (consistent with sendMessage)
+    final content = text.isNotEmpty ? text : null;
     final response = await _post(
       Uri.parse('$baseUrl/chat/$chatId/messages'),
       headers: _headers,
       body: jsonEncode({
-        'content': content,
+        if (content != null) 'content': content,
         'type': messageType,
         if (replyToId != null) 'reply_to_id': replyToId.toString(),
         if (mentions != null && mentions.isNotEmpty) 'mentions': mentions,
@@ -793,8 +789,21 @@ class ApiService {
     };
   }
 
-  /// Backend chưa có endpoint cập nhật nhóm -> bỏ qua.
-  static Future<void> updateGroup(int chatId, {String? groupName, String? groupAvatar}) async {}
+  static Future<Map<String, dynamic>> updateGroup(int chatId, {String? groupName, String? groupAvatar}) async {
+    final response = await _put(
+      Uri.parse('$baseUrl/chat/$chatId'),
+      headers: _headers,
+      body: jsonEncode({
+        if (groupName != null) 'name': groupName,
+        if (groupAvatar != null) 'avatar_url': groupAvatar,
+      }),
+    );
+    final data = _decode(response) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return data;
+    }
+    return {'error': data['detail'] ?? 'Cập nhật nhóm thất bại'};
+  }
 
   static Future<void> addParticipant(int chatId, String userUid) async {
     await _post(

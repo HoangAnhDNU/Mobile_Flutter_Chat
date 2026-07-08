@@ -160,7 +160,29 @@ class ChatService:
         participant_ids: List[int],
         avatar_url: Optional[str] = None
     ) -> Chat:
-        """Tạo nhóm chat"""
+        """Tạo nhóm chat — chỉ thêm người đã là bạn bè."""
+        # Kiểm tra user đã kết bạn với tất cả participant_ids
+        from ..models.friendship import Friendship
+        for pid in participant_ids:
+            if pid == user_id:
+                continue
+            friend_check = await db.execute(
+                select(Friendship).where(
+                    and_(
+                        Friendship.status == "accepted",
+                        or_(
+                            and_(Friendship.requester_id == user_id, Friendship.addressee_id == pid),
+                            and_(Friendship.requester_id == pid, Friendship.addressee_id == user_id),
+                        )
+                    )
+                )
+            )
+            if not friend_check.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Người dùng {pid} không có trong danh sách bạn bè. Chỉ có thể tạo nhóm với bạn bè."
+                )
+
         # Tạo chat
         chat = Chat(
             name=name,
@@ -201,7 +223,7 @@ class ChatService:
         user_id: int,
         new_user_ids: List[int]
     ) -> None:
-        """Thêm thành viên vào nhóm"""
+        """Thêm thành viên vào nhóm — chỉ thêm người đã là bạn bè."""
         # Kiểm tra quyền (phải là admin)
         query = select(ChatParticipant).where(
             and_(
@@ -217,7 +239,27 @@ class ChatService:
                 detail="Bạn không có quyền thêm thành viên"
             )
         
+        # Kiểm tra bạn bè trước khi thêm
+        from ..models.friendship import Friendship
         for uid in new_user_ids:
+            # Kiểm tra đã là bạn bè chưa
+            friend_check = await db.execute(
+                select(Friendship).where(
+                    and_(
+                        Friendship.status == "accepted",
+                        or_(
+                            and_(Friendship.requester_id == user_id, Friendship.addressee_id == uid),
+                            and_(Friendship.requester_id == uid, Friendship.addressee_id == user_id),
+                        )
+                    )
+                )
+            )
+            if not friend_check.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Người dùng {uid} không có trong danh sách bạn bè. Chỉ có thể thêm bạn bè vào nhóm."
+                )
+
             # Kiểm tra chưa là thành viên
             check = await db.execute(
                 select(ChatParticipant).where(

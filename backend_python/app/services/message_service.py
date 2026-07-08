@@ -171,6 +171,9 @@ class MessageService:
         # Classify image if type is image and has image data
         image_label = None
         fake_news_label = None
+        # voice/image messages: content may be None (placeholder stored in DB)
+        content_to_save = content if content and content.strip() else ("[Tin nhắn thoại]" if message_type == "voice" else "[Hình ảnh]" if message_type == "image" else None)
+
         if message_type == "image" and media_url:
             try:
                 from .image_classifier import get_classifier
@@ -228,7 +231,7 @@ class MessageService:
         message = Message(
             chat_id=chat_id,
             sender_id=sender_id,
-            content=content,
+            content=content_to_save,
             type=message_type,
             reply_to_id=reply_to_id,
             media_url=media_url,
