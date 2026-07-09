@@ -6,6 +6,7 @@ import '../../../core/constants/app_routes.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/utils/app_localizations.dart';
 import '../../auth/providers/auth_provider.dart';
+import 'qr_scan_screen.dart';
 
 /// Màn hình quản lý bạn bè: danh sách bạn, lời mời đang chờ,
 /// kết bạn qua email và tạo mã QR để người khác quét.
@@ -79,6 +80,28 @@ class _FriendsScreenState extends State<FriendsScreen> {
       _showSnack(res['message']?.toString() ?? AppLocalizations.of(context).translate('request_sent'));
     } else {
       _showSnack(res['error']?.toString() ?? AppLocalizations.of(context).translate('request_failed'), error: true);
+    }
+  }
+
+  Future<void> _scanQr() async {
+    final scannedEmail = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const QrScanScreen()),
+    );
+    if (scannedEmail == null || scannedEmail.isEmpty) return;
+    if (!mounted) return;
+    final auth = context.read<AuthProvider>();
+    if (scannedEmail == auth.email) {
+      _showSnack('Không thể kết bạn với chính mình', error: true);
+      return;
+    }
+    final res = await ApiService.sendFriendRequest(scannedEmail);
+    if (!mounted) return;
+    if (res['ok'] == true) {
+      _showSnack(res['message']?.toString() ?? 'Đã gửi lời mời kết bạn');
+      _loadAll();
+    } else {
+      _showSnack(res['error']?.toString() ?? 'Gửi lời mời thất bại', error: true);
     }
   }
 
@@ -220,6 +243,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
           foregroundColor: Colors.white,
           title: Text(AppLocalizations.of(context).translate('friends_title'), style: const TextStyle(fontWeight: FontWeight.bold)),
           actions: [
+            IconButton(icon: const Icon(Icons.qr_code_scanner), tooltip: 'Quét QR', onPressed: _scanQr),
             IconButton(icon: const Icon(Icons.qr_code_2), tooltip: AppLocalizations.of(context).translate('my_qr'), onPressed: _showMyQr),
             IconButton(icon: const Icon(Icons.person_add_alt_1), tooltip: AppLocalizations.of(context).translate('add_by_email'), onPressed: _addFriendByEmail),
           ],
