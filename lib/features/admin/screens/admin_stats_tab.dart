@@ -54,12 +54,23 @@ class _AdminStatsTabState extends State<AdminStatsTab> with AutomaticKeepAliveCl
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
+
+    // Format database size
+    String formatDbSize(dynamic bytes) {
+      final b = (bytes is int) ? bytes : (bytes as num?)?.toInt() ?? 0;
+      if (b == 0) return 'N/A';
+      if (b < 1024) return '$b B';
+      if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB';
+      if (b < 1024 * 1024 * 1024) return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
+      return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+    }
+
     return RefreshIndicator(
       onRefresh: _loadStats,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 3 chỉ số người dùng trên một hàng gọn
+          // Row 1: 3 chỉ số người dùng
           Row(
             children: [
               Expanded(child: _miniStat(AppLocalizations.of(context).translate('users'), _stats['total_users'], Icons.people, AppColors.primary)),
@@ -70,6 +81,37 @@ class _AdminStatsTabState extends State<AdminStatsTab> with AutomaticKeepAliveCl
             ],
           ),
           const SizedBox(height: 16),
+
+          // Row 2: New users and messages today
+          Row(
+            children: [
+              Expanded(
+                child: _miniStatWithTrend(
+                  'Người dùng mới hôm nay',
+                  _stats['new_users_today'] ?? 0,
+                  Icons.person_add,
+                  AppColors.success,
+                  _stats['active_users_today'] ?? 0,
+                  'Hoạt động',
+                  showTrend: true,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _miniStatWithTrend(
+                  'Tin nhắn hôm nay',
+                  _stats['new_messages_today'] ?? 0,
+                  Icons.message,
+                  AppColors.primary,
+                  _stats['messages_this_week'] ?? 0,
+                  'Tuần này',
+                  showTrend: false,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
           // Nhóm chỉ số hoạt động dạng danh sách hàng - rộng vừa nội dung
           Center(
             child: IntrinsicWidth(
@@ -90,16 +132,20 @@ class _AdminStatsTabState extends State<AdminStatsTab> with AutomaticKeepAliveCl
                     _statRow(AppLocalizations.of(context).translate('chat_groups'), _stats['total_groups'], Icons.groups_2_outlined, Colors.deepPurple),
                     const Divider(height: 1),
                     _statRow(AppLocalizations.of(context).translate('total_messages'), _stats['total_messages'], Icons.forum_outlined, Colors.orange),
+                    const Divider(height: 1),
+                    _statRow('Dung lượng DB', formatDbSize(_stats['db_size_bytes'] ?? 0), Icons.storage, Colors.grey),
                   ],
                 ),
               ),
             ),
           ),
           const SizedBox(height: 24),
+
           _buildChart(AppLocalizations.of(context).translate('messages_7_days'), _stats['daily_messages'], AppColors.primary),
           const SizedBox(height: 24),
           _buildChart(AppLocalizations.of(context).translate('new_users_7_days'), _stats['daily_new_users'], AppColors.success),
           const SizedBox(height: 16),
+
           Center(
             child: Text(
               AppLocalizations.of(context).tr('updated_at', params: {'time': TimeOfDay.now().format(context)}),
@@ -190,6 +236,56 @@ class _AdminStatsTabState extends State<AdminStatsTab> with AutomaticKeepAliveCl
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
           const SizedBox(height: 2),
           Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniStatWithTrend(String label, dynamic value, IconData icon, Color color, dynamic secondaryValue, String secondaryLabel, {bool showTrend = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 6),
+          Text('${value ?? 0}',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 2),
+          Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+          if (showTrend) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.trending_up, size: 12, color: AppColors.success),
+                  const SizedBox(width: 2),
+                  Text(
+                    '$secondaryValue $secondaryLabel',
+                    style: const TextStyle(fontSize: 9, color: AppColors.success),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 2),
+            Text(
+              '$secondaryValue $secondaryLabel',
+              style: TextStyle(fontSize: 10, color: color),
+            ),
+          ],
         ],
       ),
     );

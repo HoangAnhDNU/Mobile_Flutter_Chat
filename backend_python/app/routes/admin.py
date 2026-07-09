@@ -57,6 +57,9 @@ async def get_stats(
     db: AsyncSession = Depends(get_db)
 ):
     """Thống kê tổng quan cho dashboard."""
+    from datetime import datetime, timedelta
+    from sqlalchemy import cast, Date
+
     total_users = (await db.execute(select(func.count(User.id)))).scalar() or 0
     online_users = (await db.execute(
         select(func.count(User.id)).where(User.is_online == True)  # noqa: E712
@@ -71,8 +74,6 @@ async def get_stats(
     total_messages = (await db.execute(select(func.count(Message.id)))).scalar() or 0
 
     # Messages per day (last 7 days)
-    from datetime import datetime, timedelta
-    from sqlalchemy import cast, Date
     seven_days_ago = datetime.now() - timedelta(days=7)
     daily_result = await db.execute(
         select(
@@ -95,6 +96,50 @@ async def get_stats(
     )
     daily_new_users = [{"day": str(row.day), "count": row.count} for row in daily_users_result]
 
+    # New users today
+    today = datetime.now().date()
+    new_users_today = (await db.execute(
+        select(func.count(User.id)).where(
+            cast(User.created_at, Date) == today
+        )
+    )).scalar() or 0
+
+    # New messages today
+    new_messages_today = (await db.execute(
+        select(func.count(Message.id)).where(
+            cast(Message.created_at, Date) == today
+        )
+    )).scalar() or 0
+
+    # Active users today (users who sent at least 1 message today)
+    active_users_today = (await db.execute(
+        select(func.count(func.distinct(Message.sender_id))).where(
+            cast(Message.created_at, Date) == today
+        )
+    )).scalar() or 0
+
+    # Messages this week
+    messages_this_week = (await db.execute(
+        select(func.count(Message.id)).where(Message.created_at >= seven_days_ago)
+    )).scalar() or 0
+
+    # Database size (approximate) - for MySQL
+    db_size_bytes = 0
+    try:
+        from sqlalchemy import text
+        # Get data length for MySQL using information_schema
+        size_result = await db.execute(text("""
+            SELECT
+                ROUND(SUM(data_length + index_length) / 1024, 2) as size_kb
+            FROM information_schema.TABLES
+            WHERE table_schema = DATABASE()
+        """))
+        row = size_result.fetchone()
+        if row and row[0]:
+            db_size_bytes = int(row[0] * 1024)  # Convert KB to bytes
+    except Exception:
+        pass
+
     return {
         "total_users": total_users,
         "online_users": online_users,
@@ -104,6 +149,11 @@ async def get_stats(
         "total_messages": total_messages,
         "daily_messages": daily_messages,
         "daily_new_users": daily_new_users,
+        "new_users_today": new_users_today,
+        "new_messages_today": new_messages_today,
+        "active_users_today": active_users_today,
+        "messages_this_week": messages_this_week,
+        "db_size_bytes": db_size_bytes,
     }
 
 
