@@ -9,6 +9,7 @@ class SendMessageRequest(BaseModel):
     reply_to_id: Optional[str] = None
     type: str = "text"
     media_url: Optional[str] = None
+    file_name: Optional[str] = None  # Tên file đính kèm (PDF, etc.)
     mentions: Optional[List[str]] = None
     voice_duration: Optional[int] = None
 
@@ -48,6 +49,7 @@ class MessageResponse(BaseModel):
     media_url: Optional[str] = None
     media_mime: Optional[str] = None
     media_size: Optional[int] = None
+    file_name: Optional[str] = None  # Tên file đính kèm
     thumbnail_url: Optional[str] = None
     reply_to_id: Optional[str] = None
     reactions: List[ReactionResponse] = []

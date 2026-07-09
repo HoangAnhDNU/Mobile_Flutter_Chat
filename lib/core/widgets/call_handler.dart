@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 import '../services/socket_service.dart';
 import '../utils/app_localizations.dart';
 import '../constants/app_colors.dart';
@@ -23,19 +25,46 @@ class _CallHandlerState extends State<CallHandler> with WidgetsBindingObserver {
   StreamSubscription<Map<String, dynamic>>? _callEndSub;
   StreamSubscription<Map<String, dynamic>>? _callRejectSub;
   StreamSubscription<Map<String, dynamic>>? _messageSub;
+  StreamSubscription<void>? _connectSub;
   bool _dialogShown = false;
   String? _pendingCallerUid;
   OverlayEntry? _notificationOverlay;
+  bool _notificationsEnabled = true;
+  bool _isAppInForeground = true;
+
+  String? get _myUid => context.read<AuthProvider>().uid;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadNotificationSetting();
     _setupCallListener();
+    // Re-setup listener when socket connects (after auth is ready)
+    _connectSub = SocketService.instance.onConnect.listen((_) {
+      if (mounted) _setupCallListener();
+    });
+  }
+
+  Future<void> _loadNotificationSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _notificationsEnabled = prefs.getBool('notifications') ?? true;
+      });
+    }
   }
 
   void _setupCallListener() {
-    final myUid = context.read<AuthProvider>().uid;
+    // Cancel old subscriptions to avoid duplicates
+    _callOfferSub?.cancel();
+    _callEndSub?.cancel();
+    _callRejectSub?.cancel();
+    _messageSub?.cancel();
+
+    final myUid = _myUid;
+    if (myUid == null) return;
+
     _messageSub = SocketService.instance.onMessage.listen((event) async {
       final chatId = event['chatId'];
       final senderUid = event['senderUid']?.toString();
@@ -43,7 +72,25 @@ class _CallHandlerState extends State<CallHandler> with WidgetsBindingObserver {
       if (SocketService.instance.currentChatId?.toString() == chatId?.toString()) return;
       final blockStatus = await ApiService.checkBlockStatus(senderUid);
       if (blockStatus['i_blocked_them'] == true) return;
-      _showMessageNotification(event);
+
+      final msgData = event['message'] as Map<String, dynamic>?;
+      final senderName = event['senderName']?.toString() ?? '';
+      final text = msgData?['content']?.toString() ?? event['text']?.toString() ?? '';
+      final messageType = msgData?['type']?.toString() ?? event['messageType']?.toString() ?? 'text';
+      final parsedChatId = int.tryParse(chatId?.toString() ?? '') ?? 0;
+
+      if (_isAppInForeground && _notificationsEnabled) {
+        _showInAppNotification(senderName, text, messageType, parsedChatId);
+      }
+
+      if (_notificationsEnabled) {
+        NotificationService.instance.showMessageNotification(
+          chatId: parsedChatId,
+          senderName: senderName,
+          preview: text,
+          messageType: messageType,
+        );
+      }
     });
 
     _callOfferSub = SocketService.instance.onCallOffer.listen((data) async {
@@ -53,6 +100,15 @@ class _CallHandlerState extends State<CallHandler> with WidgetsBindingObserver {
       final blockStatus = await ApiService.checkBlockStatus(fromUid);
       if (blockStatus['i_blocked_them'] == true) return;
       _pendingCallerUid = fromUid;
+      
+      // Show incoming call notification (for background/multi-window scenarios)
+      final isVideo = data['isVideo'] == true;
+      final callerName = data['callerName']?.toString() ?? 'Unknown';
+      NotificationService.instance.showIncomingCallNotification(
+        callerName: callerName,
+        isVideo: isVideo,
+      );
+      
       _showIncomingCallDialog(data);
     });
 
@@ -74,6 +130,7 @@ class _CallHandlerState extends State<CallHandler> with WidgetsBindingObserver {
   void _dismissDialog() {
     _dialogShown = false;
     _pendingCallerUid = null;
+    NotificationService.instance.cancelCallNotification();
     final navContext = widget.navigatorKey?.currentContext;
     if (navContext != null && Navigator.canPop(navContext)) {
       Navigator.pop(navContext);
@@ -88,7 +145,7 @@ class _CallHandlerState extends State<CallHandler> with WidgetsBindingObserver {
     final callerAvatar = data['callerAvatar']?.toString();
     final sdp = data['sdp'] as Map<String, dynamic>?;
     final fromUid = data['fromUid']?.toString();
-    final myUid = context.read<AuthProvider>().uid;
+    final myUid = _myUid;
 
     showDialog(
       context: navContext,
@@ -139,26 +196,11 @@ class _CallHandlerState extends State<CallHandler> with WidgetsBindingObserver {
     ).then((_) => _dialogShown = false);
   }
 
-  void _showMessageNotification(Map<String, dynamic> event) {
+  void _showInAppNotification(String senderName, String text, String messageType, int chatId) {
     _notificationOverlay?.remove();
-    final msgData = event['message'] as Map<String, dynamic>?;
-    final senderName = event['senderName']?.toString() ?? '';
-    final text = msgData?['content']?.toString() ?? event['text']?.toString() ?? '';
-    final messageType = msgData?['type']?.toString() ?? event['messageType']?.toString() ?? 'text';
-    final chatId = event['chatId']?.toString() ?? '';
+    final preview = _buildPreviewText(text, messageType);
 
-    String preview;
-    if (messageType == 'image') {
-      preview = '[Hình ảnh]';
-    } else if (messageType == 'voice') {
-      preview = '[Tin nhắn thoại]';
-    } else if (messageType == 'call') {
-      preview = text;
-    } else {
-      preview = text;
-    }
-
-    final isInChat = SocketService.instance.currentChatId?.toString() == chatId;
+    final isInChat = SocketService.instance.currentChatId == chatId;
 
     _notificationOverlay = OverlayEntry(
       builder: (context) => _MessageNotification(
@@ -173,7 +215,7 @@ class _CallHandlerState extends State<CallHandler> with WidgetsBindingObserver {
             Navigator.of(navContext).pushNamed(
               '/chat_detail',
               arguments: {
-                'chatId': int.tryParse(chatId) ?? 0,
+                'chatId': chatId,
                 'chatName': senderName,
               },
             );
@@ -194,12 +236,33 @@ class _CallHandlerState extends State<CallHandler> with WidgetsBindingObserver {
     });
   }
 
+  String _buildPreviewText(String text, String messageType) {
+    if (messageType == 'image') {
+      return '[Hình ảnh]';
+    } else if (messageType == 'voice') {
+      return '[Tin nhắn thoại]';
+    } else if (messageType == 'call') {
+      return text;
+    } else {
+      return text;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isAppInForeground = (state == AppLifecycleState.resumed);
+    if (state == AppLifecycleState.resumed) {
+      NotificationService.instance.cancelAllNotifications();
+    }
+  }
+
   @override
   void dispose() {
     _callOfferSub?.cancel();
     _callEndSub?.cancel();
     _callRejectSub?.cancel();
     _messageSub?.cancel();
+    _connectSub?.cancel();
     _notificationOverlay?.remove();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();

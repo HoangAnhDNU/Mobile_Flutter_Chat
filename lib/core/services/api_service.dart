@@ -104,6 +104,7 @@ class ApiService {
       'is_edited': m['edited_at'] != null,
       'message_type': m['type'] ?? 'text',
       'imageUrl': m['media_url'],
+      'fileName': m['file_name'],
       'image_base64': null,
       'voice_duration': m['voice_duration'] ?? 0,
       'delivery_status': m['status'] ?? 'sent',
@@ -415,6 +416,8 @@ class ApiService {
     String? voiceBase64,
     int? voiceDuration,
     List<String>? mentions,
+    String? fileBase64,
+    String? fileName,
   }) async {
     // Voice/image messages: send content=null so backend generates proper placeholder.
     // Backend no longer requires min_length=1 after fix.
@@ -425,6 +428,8 @@ class ApiService {
       mediaUrl = imageBase64.startsWith('data:') ? imageBase64 : 'data:image/png;base64,$imageBase64';
     } else if (messageType == 'voice' && voiceBase64 != null) {
       mediaUrl = voiceBase64.startsWith('data:') ? voiceBase64 : 'data:audio/m4a;base64,$voiceBase64';
+    } else if (messageType == 'file' && fileBase64 != null) {
+      mediaUrl = fileBase64.startsWith('data:') ? fileBase64 : 'data:application/pdf;base64,$fileBase64';
     }
     debugPrint('[ApiService.sendMessage] Sending $messageType message - content: ${content ?? "null"}, mediaUrl present: ${mediaUrl != null}');
     final response = await _post(
@@ -434,6 +439,7 @@ class ApiService {
         if (content != null) 'content': content,
         'type': messageType,
         if (mediaUrl != null) 'media_url': mediaUrl,
+        if (fileName != null) 'file_name': fileName,
         if (mentions != null && mentions.isNotEmpty) 'mentions': mentions,
         if (voiceDuration != null) 'voice_duration': voiceDuration,
       }),
@@ -1020,5 +1026,57 @@ class ApiService {
   static Future<bool> unfriend(String userId) async {
     final response = await _delete(Uri.parse('$baseUrl/friend/$userId'), headers: _headers);
     return response.statusCode == 200;
+  }
+
+  // ==================== Notification Settings ====================
+
+  static Future<Map<String, dynamic>> getNotificationSettings() async {
+    try {
+      final response = await _get(Uri.parse('$baseUrl/user/notification-settings'), headers: _headers);
+      if (response.statusCode != 200) return {};
+      return _decode(response) as Map<String, dynamic>;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateNotificationSettings({
+    String? messageSound,
+    String? callSound,
+    bool? isMessageVibration,
+    bool? isCallVibration,
+    bool? isMessagePreview,
+  }) async {
+    try {
+      final body = <String, dynamic>{};
+      if (messageSound != null) body['message_sound'] = messageSound;
+      if (callSound != null) body['call_sound'] = callSound;
+      if (isMessageVibration != null) body['is_message_vibration'] = isMessageVibration;
+      if (isCallVibration != null) body['is_call_vibration'] = isCallVibration;
+      if (isMessagePreview != null) body['is_message_preview'] = isMessagePreview;
+
+      final response = await _put(
+        Uri.parse('$baseUrl/user/notification-settings'),
+        headers: _headers,
+        body: jsonEncode(body),
+      );
+      return _decode(response) as Map<String, dynamic>;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<List<dynamic>> getAvailableSounds() async {
+    try {
+      final response = await _get(Uri.parse('$baseUrl/user/notification-sounds'), headers: _headers);
+      if (response.statusCode != 200) return [];
+      final data = _decode(response) as Map<String, dynamic>;
+      return [
+        {'type': 'message', 'sounds': data['message_sounds'] ?? []},
+        {'type': 'call', 'sounds': data['call_sounds'] ?? []},
+      ];
+    } catch (_) {
+      return [];
+    }
   }
 }

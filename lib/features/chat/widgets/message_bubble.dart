@@ -12,6 +12,7 @@ import '../../../core/utils/time_utils.dart';
 import '../../../core/utils/downloader.dart';
 import '../../../core/utils/web_opener.dart' if (dart.library.html) '../../../core/utils/web_opener_web.dart';
 import '../screens/image_viewer_screen.dart';
+import '../screens/pdf_viewer_screen.dart';
 
 class MessageBubble extends StatefulWidget {
   final String text;
@@ -23,6 +24,7 @@ class MessageBubble extends StatefulWidget {
   final String? imageUrl;
   final String? imageBase64;
   final String type;
+  final String? fileName;
   final VoidCallback? onLongPress;
   final String deliveryStatus;
   final String? replyToText;
@@ -49,6 +51,7 @@ class MessageBubble extends StatefulWidget {
     this.imageUrl,
     this.imageBase64,
     this.type = 'text',
+    this.fileName,
     this.onLongPress,
     this.deliveryStatus = 'sent',
     this.replyToText,
@@ -301,6 +304,8 @@ class _MessageBubbleState extends State<MessageBubble> {
                   isMe: isMe,
                   durationMs: voiceDuration,
                 )
+              else if (type == 'file' && (imageUrl != null || imageBase64 != null))
+                _buildPdfAttachment(imageUrl ?? '', imageBase64, isMe)
               else if (type == 'call')
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -585,6 +590,99 @@ class _MessageBubbleState extends State<MessageBubble> {
         child: Text('${e.key} ${e.value > 1 ? e.value : ''}', style: const TextStyle(fontSize: 14)),
       );
     }).toList();
+  }
+
+  Widget _buildPdfAttachment(String pdfUrl, String? pdfBase64, bool isMe) {
+    final src = (pdfBase64 != null && pdfBase64.isNotEmpty)
+        ? pdfBase64
+        : pdfUrl;
+    // Extract filename from widget.fileName or widget.text
+    final fileName = widget.fileName ?? (widget.text.isNotEmpty && widget.text.length < 200
+        ? widget.text
+        : 'document.pdf');
+    
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PdfViewerScreen(
+              pdfSource: src,
+              fileName: fileName,
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        constraints: const BoxConstraints(maxWidth: 240),
+        decoration: BoxDecoration(
+          color: isMe ? Colors.white.withValues(alpha: 0.15) : Colors.red.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.picture_as_pdf,
+                  color: isMe ? Colors.white : Colors.red,
+                  size: 32,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        fileName,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: isMe ? Colors.white : AppColors.textPrimary,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'PDF',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isMe ? Colors.white70 : AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.visibility,
+                  size: 16,
+                  color: isMe ? Colors.white70 : AppColors.primary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Tap de xem',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isMe ? Colors.white70 : AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   String _formatTimestamp() {

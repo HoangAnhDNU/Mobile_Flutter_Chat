@@ -61,11 +61,13 @@ def _detect_mime(filename: str) -> str:
         "png": "image/png",
         "gif": "image/gif",
         "webp": "image/webp",
+        "pdf": "application/pdf",
     }.get(ext, "application/octet-stream")
 
 
 SEED_VOICE_FILE = "sample_voice.wav"
 SEED_IMAGE_FILE = "sample_image.jpg"
+SEED_PDF_FILE = "sample_document.pdf"
 
 
 async def seed_users(session):
@@ -281,6 +283,26 @@ async def seed_messages(session, chats, users):
     session.add(msg3_voice)
     await session.flush()
     
+    # PDF document sample message
+    msg3_pdf = Message(
+        chat_id=chats[0].id,
+        sender_id=users[0].id,
+        content="Tai lieu huong dan su dung",
+        type="file",
+        status="delivered",
+        file_name="huong_dan_su_dung.pdf",
+        created_at=datetime.now() - timedelta(minutes=30),
+    )
+    _seed_pdf_bytes = load_media_binary(SEED_PDF_FILE)
+    if _seed_pdf_bytes:
+        msg3_pdf.media_data = _seed_pdf_bytes
+        msg3_pdf.media_mime = _detect_mime(SEED_PDF_FILE)  # application/pdf
+        msg3_pdf.media_size = len(_seed_pdf_bytes)
+    else:
+        print("Khong co PDF mau, msg3_pdf chi luu text")
+    session.add(msg3_pdf)
+    await session.flush()
+    
     msg4 = Message(
         chat_id=chats[0].id,
         sender_id=users[1].id,
@@ -389,6 +411,8 @@ async def migrate_media_columns(session):
       - messages.thumbnail_data: MEDIUMBLOB.
       - messages.thumbnail_mime: VARCHAR(50).
       - messages.media_url: VARCHAR(500) (legacy URL ngoai).
+      - messages.file_name: VARCHAR(255) (ten file dinh kem).
+      - user_notification_settings: Bang moi cho cai dat thong bao.
     """
     print("Dang migration cot media sang BLOB...")
     alters = [
@@ -400,6 +424,7 @@ async def migrate_media_columns(session):
         "ALTER TABLE messages ADD COLUMN media_size INT NULL",
         "ALTER TABLE messages ADD COLUMN thumbnail_data MEDIUMBLOB NULL",
         "ALTER TABLE messages ADD COLUMN thumbnail_mime VARCHAR(50) NULL",
+        "ALTER TABLE messages ADD COLUMN file_name VARCHAR(255) NULL",
         "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'",
         "ALTER TABLE users ADD COLUMN is_locked TINYINT(1) NOT NULL DEFAULT 0",
     ]
@@ -410,6 +435,30 @@ async def migrate_media_columns(session):
             print(f"Bo qua ALTER ({stmt}): {e}")
     await session.commit()
     print("Da migration cot media xong")
+
+    # Create notification settings table if not exists
+    print("Dang tao bang notification_settings...")
+    create_notification_table = """
+    CREATE TABLE IF NOT EXISTS user_notification_settings (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL UNIQUE,
+        message_sound VARCHAR(100) DEFAULT 'default',
+        call_sound VARCHAR(100) DEFAULT 'default',
+        is_message_vibration TINYINT(1) DEFAULT 1,
+        is_call_vibration TINYINT(1) DEFAULT 1,
+        is_message_preview TINYINT(1) DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user_id (user_id),
+        CONSTRAINT fk_notification_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """
+    try:
+        await session.execute(text(create_notification_table))
+        await session.commit()
+        print("Da tao bang notification_settings")
+    except Exception as e:
+        print(f"Bo qua CREATE TABLE notification_settings: {e}")
 
 
 async def seed_all():

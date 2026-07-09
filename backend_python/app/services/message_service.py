@@ -118,6 +118,7 @@ class MessageService:
         media_url: Optional[str] = None,
         mentions: Optional[list] = None,
         voice_duration: Optional[int] = None,
+        file_name: Optional[str] = None,
     ) -> Message:
         """Gửi tin nhắn"""
         import logging
@@ -237,7 +238,7 @@ class MessageService:
                 pass
 
         # Voice/image messages: content may be None (placeholder stored in DB)
-        content_to_save = content if content and content.strip() else ("[Tin nhắn thoại]" if message_type == "voice" else "[Hình ảnh]" if message_type == "image" else None)
+        content_to_save = content if content and content.strip() else ("[Tin nhắn thoại]" if message_type == "voice" else "[Hình ảnh]" if message_type == "image" else "[Tệp đính kèm]" if message_type == "file" else None)
 
         message = Message(
             chat_id=chat_id,
@@ -249,6 +250,7 @@ class MessageService:
             media_mime=media_mime,
             media_size=media_size,
             media_url=saved_media_url,
+            file_name=file_name,
             image_label=image_label,
             fake_news_label=fake_news_label,
             voice_duration=voice_duration,

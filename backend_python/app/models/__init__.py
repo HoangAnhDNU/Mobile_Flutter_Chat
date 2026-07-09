@@ -6,6 +6,7 @@ from .block import BlockedUser
 from .activity_log import ActivityLog
 from .group_invite import GroupInvite
 from .privacy import UserPrivacy
+from .notification_settings import UserNotificationSettings, AVAILABLE_MESSAGE_SOUNDS, AVAILABLE_CALL_SOUNDS
 
 __all__ = [
     "User",
@@ -20,4 +21,7 @@ __all__ = [
     "ActivityLog",
     "GroupInvite",
     "UserPrivacy",
+    "UserNotificationSettings",
+    "AVAILABLE_MESSAGE_SOUNDS",
+    "AVAILABLE_CALL_SOUNDS",
 ]

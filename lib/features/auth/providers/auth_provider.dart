@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/socket_service.dart';
+import '../../../core/services/keep_alive_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   String? _uid;
@@ -38,6 +39,7 @@ class AuthProvider extends ChangeNotifier {
       }
       // Khôi phục phiên -> kết nối socket để đánh dấu online
       SocketService.instance.connect(_uid!);
+      KeepAliveService.start(); // Bật foreground service để nhận thông báo khi thoát app
     }
     notifyListeners();
   }
@@ -82,7 +84,10 @@ class AuthProvider extends ChangeNotifier {
       await _saveUserToPrefs();
 
       // Kết nối socket ngay khi đăng nhập để đánh dấu online + nhận realtime
-      if (_uid != null) SocketService.instance.connect(_uid!);
+      if (_uid != null) {
+        SocketService.instance.connect(_uid!);
+        KeepAliveService.start(); // Bật foreground service để nhận thông báo khi thoát app
+      }
 
       _setLoading(false);
       return true;
@@ -164,6 +169,7 @@ class AuthProvider extends ChangeNotifier {
   Future<void> signOut() async {
     // Ngắt socket trước để backend đánh dấu offline + phát presence_update
     SocketService.instance.disconnect();
+    KeepAliveService.stop(); // Tắt foreground service khi đăng xuất
     await ApiService.logout();
     _uid = null;
     _email = null;

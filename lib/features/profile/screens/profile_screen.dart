@@ -335,6 +335,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const Divider(height: 1),
                   ListTile(
+                    leading: const Icon(Icons.notifications_outlined, size: 20),
+                    title: Text('Cài đặt thông báo'),
+                    subtitle: Text('Âm thanh, rung, xem trước'),
+                    trailing: const Icon(Icons.chevron_right, size: 20),
+                    onTap: () => Navigator.pushNamed(context, AppRoutes.notificationSettings),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
                     leading: const Icon(Icons.block, size: 20),
                     title: Text(l10n.translate('blocked_users')),
                     trailing: const Icon(Icons.chevron_right, size: 20),

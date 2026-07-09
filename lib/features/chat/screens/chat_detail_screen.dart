@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
@@ -94,6 +95,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
   int _recordDuration = 0;
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   final List<double> _amplitudes = [];
+
+  // PDF preview state
+  Map<String, dynamic>? _pendingPdf;
 
   final GlobalKey _attachButtonKey = GlobalKey();
 
@@ -694,6 +698,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           ),
         ),
         PopupMenuItem<String>(
+          value: 'pdf',
+          child: Row(
+            children: [
+              const Icon(Icons.picture_as_pdf, size: 20, color: Colors.red),
+              const SizedBox(width: 12),
+              Text('Tài liệu PDF'),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
           value: 'record',
           child: Row(
             children: [
@@ -709,6 +723,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
         _sendImage(ImageSource.gallery);
       } else if (value == 'camera') {
         _captureFromCamera();
+      } else if (value == 'pdf') {
+        _pickAndSendPdf();
       } else if (value == 'record') {
         _startRecording();
       }
@@ -921,6 +937,186 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       return 'audio/mpeg';
     }
     return fallback;
+  }
+
+  Future<void> _pickAndSendPdf() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      if (file.bytes == null || file.bytes!.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể đọc file PDF'), backgroundColor: Colors.red),
+        );
+        return;
+      }
+
+      final bytes = file.bytes!;
+      final base64Pdf = base64Encode(bytes);
+      final dataUri = 'data:application/pdf;base64,$base64Pdf';
+
+      setState(() {
+        _pendingPdf = {
+          'dataUri': dataUri,
+          'fileName': file.name,
+          'fileSize': _formatFileSize(file.size),
+        };
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showPdfPreview();
+      });
+    } catch (e) {
+      debugPrint('PDF pick error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi khi chọn PDF: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Future<void> _sendPdfMessage() async {
+    if (_pendingPdf == null) return;
+
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.uid == null) return;
+
+    final pdfData = _pendingPdf!;
+    final pdfBase64 = (pdfData['dataUri'] as String).split(',').last;
+    final fileName = pdfData['fileName'] as String;
+
+    try {
+      final sentMsg = await ApiService.sendMessage(
+        chatId: _chatId,
+        senderUid: authProvider.uid!,
+        senderName: authProvider.displayName ?? 'Unknown',
+        text: fileName,
+        messageType: 'file',
+        fileBase64: pdfBase64,
+        fileName: fileName,
+      );
+
+      if (mounted && sentMsg.isNotEmpty) {
+        setState(() {
+          _pendingPdf = null;
+          _newMessageIds.add(sentMsg['id'].toString());
+          _messages.insert(0, sentMsg);
+        });
+        _scrollToLatest();
+      }
+    } catch (e) {
+      debugPrint('PDF send error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi khi gửi PDF: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _cancelPdf() {
+    setState(() {
+      _pendingPdf = null;
+    });
+  }
+
+  void _showPdfPreview() {
+    if (_pendingPdf == null) return;
+    final pdf = _pendingPdf!;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.picture_as_pdf, color: Colors.red, size: 36),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pdf['fileName'] as String,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        pdf['fileSize'] as String,
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _cancelPdf();
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _sendPdfMessage();
+                },
+                icon: const Icon(Icons.send),
+                label: const Text('Gửi PDF'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
 
@@ -1917,6 +2113,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
           timestamp: msg['created_at'] != null ? DateTime.parse(msg['created_at']) : null,
           isEdited: msg['is_edited'] == true || msg['is_edited'] == 1,
           type: msg['message_type'] ?? 'text',
+          fileName: msg['fileName'],
           imageUrl: msg['imageUrl'],
           imageBase64: msg['image_base64'],
           voiceDuration: msg['voice_duration'],

@@ -355,6 +355,7 @@ async def send_message(
         media_url=request.media_url,
         mentions=request.mentions,
         voice_duration=request.voice_duration,
+        file_name=request.file_name,
     )
 
     message_data = message.to_dict()

@@ -9,6 +9,7 @@ from .image import router as image_router
 from .block import router as block_router
 from .privacy import router as privacy_router
 from .group_invite import router as invite_router
+from .notification_settings import router as notification_settings_router
 
 api_router = APIRouter()
 
@@ -21,3 +22,4 @@ api_router.include_router(image_router)
 api_router.include_router(block_router)
 api_router.include_router(privacy_router)
 api_router.include_router(invite_router)
+api_router.include_router(notification_settings_router, prefix="/user", tags=["Notification Settings"])

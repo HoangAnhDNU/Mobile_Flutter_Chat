@@ -46,6 +46,7 @@ class Message(Base):
     media_url = Column(String(500), nullable=True)       # (legacy/optional) URL ngoai, fallback
     thumbnail_data = Column(MEDIUMBLOB, nullable=True)   # 16MB - anh thumb nho
     thumbnail_mime = Column(String(50), nullable=True)
+    file_name = Column(String(255), nullable=True)       # Ten file dinh kem (PDF, etc.)
 
     reply_to_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
     is_deleted = Column(Boolean, default=False)
@@ -106,6 +107,7 @@ class Message(Base):
             "media_url": media_url_out,
             "media_mime": None if self.is_deleted else self.media_mime,
             "media_size": None if self.is_deleted else self.media_size,
+            "file_name": None if self.is_deleted else self.file_name,
             "thumbnail_url": thumbnail_url_out,
             "reply_to_id": str(self.reply_to_id) if self.reply_to_id else None,
             "is_deleted": self.is_deleted,

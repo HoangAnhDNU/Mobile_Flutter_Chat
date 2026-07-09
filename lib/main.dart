@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_config.dart';
 import 'core/constants/app_routes.dart';
 import 'core/services/api_service.dart';
+import 'core/services/notification_service.dart';
 import 'core/themes/app_theme.dart';
 import 'core/themes/theme_provider.dart';
 import 'core/utils/app_localizations.dart';
@@ -19,6 +20,8 @@ import 'features/chat/screens/chat_list_screen.dart';
 import 'features/chat/screens/chat_detail_screen.dart';
 import 'features/chat/screens/create_chat_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
+import 'features/profile/screens/notification_settings_screen.dart';
+import 'features/profile/screens/privacy_settings_screen.dart';
 import 'features/chat/screens/group_settings_screen.dart';
 import 'features/chat/screens/join_group_screen.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
@@ -41,6 +44,19 @@ void main() async {
     await ApiService.init();
   } catch (e) {
     debugPrint('ApiService init error: $e');
+  }
+
+  try {
+    await NotificationService.instance.init();
+    NotificationService.instance.setOnNotificationTap((chatId, chatName) {
+      MyApp.navigatorKey.currentState?.pushNamed(
+        '/chat_detail',
+        arguments: {'chatId': chatId, 'chatName': chatName},
+      );
+    });
+    await NotificationService.instance.requestPermissions();
+  } catch (e) {
+    debugPrint('NotificationService init error: $e');
   }
 
   runApp(const MyApp());
@@ -96,6 +112,8 @@ class MyApp extends StatelessWidget {
               AppRoutes.profile: (context) => const ProfileScreen(),
               AppRoutes.adminDashboard: (context) => const AdminDashboardScreen(),
               AppRoutes.friends: (context) => const FriendsScreen(),
+              AppRoutes.notificationSettings: (context) => const NotificationSettingsScreen(),
+              AppRoutes.privacySettings: (context) => const PrivacySettingsScreen(),
             },
             onGenerateRoute: (settings) {
               if (settings.name == AppRoutes.chatDetail) {

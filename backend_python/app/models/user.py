@@ -25,6 +25,7 @@ class User(Base):
     sent_messages = relationship("Message", back_populates="sender", foreign_keys="Message.sender_id")
     chat_participations = relationship("ChatParticipant", back_populates="user")
     reactions = relationship("MessageReaction", back_populates="user")
+    notification_settings = relationship("UserNotificationSettings", back_populates="user", uselist=False)
     
     def to_dict(self, include_email: bool = True) -> dict:
         """Chuyển đổi sang dictionary"""
