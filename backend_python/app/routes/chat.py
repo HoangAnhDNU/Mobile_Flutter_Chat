@@ -167,6 +167,9 @@ async def update_group(
     db: AsyncSession = Depends(get_db)
 ):
     """Cập nhật tên / avatar nhóm — chỉ admin mới được sửa."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[update_group] user={current_user.id}, chat_id={chat_id}, request={request}")
     from sqlalchemy import select as sa_select
     from sqlalchemy.orm import selectinload
     from ..models.chat import Chat, ChatParticipant
@@ -339,6 +342,9 @@ async def send_message(
     db: AsyncSession = Depends(get_db)
 ):
     """Gửi tin nhắn"""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[send_message] user={current_user.id}, chat={chat_id}, type={request.type}, content={request.content}, media_url={'present' if request.media_url else 'None'}")
     message = await MessageService.send_message(
         db=db,
         chat_id=chat_id,

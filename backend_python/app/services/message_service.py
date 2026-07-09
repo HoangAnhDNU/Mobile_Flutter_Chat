@@ -1,3 +1,4 @@
+import os
 from typing import List, Tuple, Optional
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -111,7 +112,7 @@ class MessageService:
         db: AsyncSession,
         chat_id: int,
         sender_id: int,
-        content: str,
+        content: Optional[str],
         message_type: str = "text",
         reply_to_id: Optional[int] = None,
         media_url: Optional[str] = None,
@@ -119,6 +120,9 @@ class MessageService:
         voice_duration: Optional[int] = None,
     ) -> Message:
         """Gửi tin nhắn"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[MessageService.send_message] content={content!r}, message_type={message_type}, media_url={'present' if media_url else 'None'}")
         # Verify sender là participant
         check = await db.execute(
             select(ChatParticipant).where(
@@ -133,14 +137,14 @@ class MessageService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Bạn không có quyền gửi tin nhắn"
             )
-        
+
         # Check block: if this is a 1-1 chat, check block in both directions
         from ..models.block import BlockedUser
         is_group_result = await db.execute(
             select(Chat.is_group).where(Chat.id == chat_id)
         )
         is_group = is_group_result.scalar_one_or_none()
-        _silently_drop = False
+
         if not is_group:
             # Get the other participant
             other_result = await db.execute(
@@ -167,87 +171,97 @@ class MessageService:
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Không thể gửi tin nhắn do quan hệ chặn"
                     )
-        
-        # Classify image if type is image and has image data
-        image_label = None
-        fake_news_label = None
-        # voice/image messages: content may be None (placeholder stored in DB)
-        content_to_save = content if content and content.strip() else ("[Tin nhắn thoại]" if message_type == "voice" else "[Hình ảnh]" if message_type == "image" else None)
 
-        if message_type == "image" and media_url:
+        # ---- Parse media (voice/image) tu data URI ----
+        # Neu client gui data URI base64 (vi du "data:audio/m4a;base64,AAAAB3..."),
+        # decode thanh bytes roi luu vao BLOB. Neu chi co URL ngoai, giu nguyen media_url.
+        import base64
+
+        media_data: Optional[bytes] = None
+        media_mime: Optional[str] = None
+        media_size: Optional[int] = None
+        saved_media_url: Optional[str] = None
+
+        if media_url and media_url.startswith("data:"):
+            try:
+                # data URI format: "data:<mime>;base64,<payload>"
+                if "," in media_url:
+                    header, b64_payload = media_url.split(",", 1)
+                    mime_part = header[5:]  # bo "data:"
+                    mime_type = mime_part.split(";")[0] if ";" in mime_part else mime_part
+                    raw = base64.b64decode(b64_payload)
+                    media_data = raw
+                    media_mime = mime_type or None
+                    media_size = len(raw)
+                    # media_url de trong (luu noi sinh trong DB)
+                    saved_media_url = None
+            except Exception:
+                pass
+        else:
+            # URL ngoai hoac khong co media
+            saved_media_url = media_url
+
+        image_label: Optional[str] = None
+        fake_news_label: Optional[str] = None
+
+        # Classify image neu co binary data
+        if message_type == "image" and media_data:
             try:
                 from .image_classifier import get_classifier
                 from .fake_news_classifier import get_fake_news_classifier
                 import tempfile
                 import os
-                import base64
-                
+
                 classifier = get_classifier()
                 fake_news_clf = get_fake_news_classifier()
-                
-                # Handle base64 data (from Flutter)
-                if media_url.startswith('data:image'):
-                    # Extract base64 part
-                    base64_data = media_url.split(',')[1]
-                    image_data = base64.b64decode(base64_data)
-                    
-                    # Save to temp file
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
-                        temp_file.write(image_data)
-                        temp_path = temp_file.name
-                    
-                    try:
-                        predictions = classifier.predict(temp_path, top_k=1)
-                        if predictions:
-                            predicted_label = list(predictions.keys())[0]
-                            # Only save label if it's one of the 5 allowed labels
-                            allowed_labels = {'classroom', 'computerroom', 'library', 'corridor', 'office'}
-                            if predicted_label in allowed_labels:
-                                image_label = predicted_label
-                        
-                        # Fake news detection (6-way)
-                        fake_predictions = fake_news_clf.predict(temp_path)
-                        if fake_predictions:
-                            fake_news_label = list(fake_predictions.keys())[0]
-                    finally:
-                        os.unlink(temp_path)
-                else:
-                    # Assume it's a local file path
-                    predictions = classifier.predict(media_url, top_k=1)
+
+                # Save to temp file de classifier predict
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                    temp_file.write(media_data)
+                    temp_path = temp_file.name
+
+                try:
+                    predictions = classifier.predict(temp_path, top_k=1)
                     if predictions:
                         predicted_label = list(predictions.keys())[0]
-                        # Only save label if it's one of the 5 allowed labels
                         allowed_labels = {'classroom', 'computerroom', 'library', 'corridor', 'office'}
                         if predicted_label in allowed_labels:
                             image_label = predicted_label
-                    
-                    # Fake news detection (6-way)
-                    fake_predictions = fake_news_clf.predict(media_url)
+
+                    fake_predictions = fake_news_clf.predict(temp_path)
                     if fake_predictions:
                         fake_news_label = list(fake_predictions.keys())[0]
+                finally:
+                    os.unlink(temp_path)
             except Exception:
                 pass
-        
+
+        # Voice/image messages: content may be None (placeholder stored in DB)
+        content_to_save = content if content and content.strip() else ("[Tin nhắn thoại]" if message_type == "voice" else "[Hình ảnh]" if message_type == "image" else None)
+
         message = Message(
             chat_id=chat_id,
             sender_id=sender_id,
             content=content_to_save,
             type=message_type,
             reply_to_id=reply_to_id,
-            media_url=media_url,
+            media_data=media_data,
+            media_mime=media_mime,
+            media_size=media_size,
+            media_url=saved_media_url,
             image_label=image_label,
             fake_news_label=fake_news_label,
             voice_duration=voice_duration,
             mentions=mentions if mentions else None,
         )
         db.add(message)
-        
+
         # Cập nhật updated_at của chat (dùng update trực tiếp để tránh lazy-load greenlet)
         from sqlalchemy import update as sa_update
         await db.execute(
             sa_update(Chat).where(Chat.id == chat_id).values(updated_at=datetime.utcnow())
         )
-        
+
         await db.commit()
 
         # Load lại message kèm sender và reactions để tránh lazy-load
@@ -264,7 +278,7 @@ class MessageService:
         message = reload_result.scalar_one()
 
         return message
-    
+
     @staticmethod
     async def edit_message(
         db: AsyncSession,

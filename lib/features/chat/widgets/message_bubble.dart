@@ -172,8 +172,7 @@ class _MessageBubbleState extends State<MessageBubble> {
               bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
             ),
           ),
-          child: IntrinsicWidth(
-            child: Column(
+          child: Column(
               crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -367,7 +366,6 @@ class _MessageBubbleState extends State<MessageBubble> {
               ),
             ],
           ),
-          ),
         ),
         if (reactions.isNotEmpty && !isDeleted)
           Container(
@@ -405,8 +403,10 @@ class _MessageBubbleState extends State<MessageBubble> {
                   : null,
             ),
             const SizedBox(width: 8),
-          ],
-          messageWithAvatarWrap(bubbleContent),
+            // Flexible/flex=1 để bubble tự co lại khi còn người gửi khác.
+            Flexible(flex: 1, child: messageWithAvatarWrap(bubbleContent)),
+          ] else
+            Flexible(flex: 1, child: messageWithAvatarWrap(bubbleContent)),
         ],
       ),
     );

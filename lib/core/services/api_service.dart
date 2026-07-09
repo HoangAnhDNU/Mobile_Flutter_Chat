@@ -426,6 +426,7 @@ class ApiService {
     } else if (messageType == 'voice' && voiceBase64 != null) {
       mediaUrl = voiceBase64.startsWith('data:') ? voiceBase64 : 'data:audio/m4a;base64,$voiceBase64';
     }
+    debugPrint('[ApiService.sendMessage] Sending $messageType message - content: ${content ?? "null"}, mediaUrl present: ${mediaUrl != null}');
     final response = await _post(
       Uri.parse('$baseUrl/chat/$chatId/messages'),
       headers: _headers,
@@ -437,7 +438,9 @@ class ApiService {
         if (voiceDuration != null) 'voice_duration': voiceDuration,
       }),
     );
+    debugPrint('[ApiService.sendMessage] Response status: ${response.statusCode}');
     final data = _decode(response) as Map<String, dynamic>;
+    debugPrint('[ApiService.sendMessage] Response body: $data');
     if (data['message'] != null) {
       return _adaptMessage(Map<String, dynamic>.from(data['message']));
     }

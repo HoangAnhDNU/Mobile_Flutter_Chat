@@ -70,12 +70,17 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     setState(() => _isLoading = true);
     try {
       final info = await ApiService.getChatInfo(_chatId);
+      if (!mounted) return;
+      debugPrint('[GroupSettings] getChatInfo response: $info');
+      debugPrint('[GroupSettings] created_by type: ${info['created_by']?.runtimeType}, value: ${info['created_by']}');
+      debugPrint('[GroupSettings] current user uid: ${context.read<AuthProvider>().uid}');
       setState(() {
         _nameController.text = info['chat_name'] ?? '';
         _groupAvatar = info['group_avatar'] ?? '';
-        _adminId = info['created_by'] ?? '';
+        _adminId = info['created_by']?.toString() ?? '';
         _participants = List<Map<String, dynamic>>.from(info['participants'] ?? []);
       });
+      debugPrint('[GroupSettings] _adminId set to: $_adminId, _isAdmin: $_isAdmin');
       await _loadInviteLink();
     } catch (e) {
       debugPrint('Error loading group info: $e');
@@ -196,9 +201,16 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Future<void> _updateGroupName() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
-    await ApiService.updateGroup(_chatId, groupName: name);
-    setState(() => _isEditing = false);
+    final result = await ApiService.updateGroup(_chatId, groupName: name);
+    if (!mounted) return;
+    if (result.containsKey('error')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['error'].toString())),
+      );
+      return;
+    }
     await _loadGroupInfo();
+    setState(() => _isEditing = false);
   }
 
   Future<void> _changeGroupAvatar() async {
@@ -210,7 +222,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final bytes = await file.readAsBytes();
     final base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
 
-    await ApiService.updateGroup(_chatId, groupAvatar: base64Image);
+    final result = await ApiService.updateGroup(_chatId, groupAvatar: base64Image);
+    if (!mounted) return;
+    if (result.containsKey('error')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['error'].toString())),
+      );
+      return;
+    }
     setState(() => _groupAvatar = base64Image);
   }
 

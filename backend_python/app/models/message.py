@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Enum
-from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Enum, LargeBinary
+from sqlalchemy.dialects.mysql import LONGTEXT, LONGBLOB, MEDIUMBLOB, VARBINARY
 from sqlalchemy import JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -35,8 +35,18 @@ class Message(Base):
     content = Column(Text, nullable=False)
     type = Column(String(20), default=MessageType.TEXT.value)
     status = Column(String(20), default=MessageStatus.SENT.value)
-    media_url = Column(LONGTEXT, nullable=True)
-    thumbnail_url = Column(LONGTEXT, nullable=True)
+
+    # ---------- Media luu dang BLOB nhi phan trong MySQL ----------
+    # media_data: file nhi phan tho (audio m4a, image jpg/png, ...). Toi da 4GB.
+    # media_mime: kieu MIME de client hien thi dung, vi du "audio/m4a" / "image/png".
+    # Khi gui qua API, backend encode base64 thanh data URI de nhung trong JSON.
+    media_data = Column(LONGBLOB, nullable=True)         # 4GB max
+    media_mime = Column(String(50), nullable=True)       # "audio/m4a", "image/png", ...
+    media_size = Column(Integer, nullable=True)          # bytes
+    media_url = Column(String(500), nullable=True)       # (legacy/optional) URL ngoai, fallback
+    thumbnail_data = Column(MEDIUMBLOB, nullable=True)   # 16MB - anh thumb nho
+    thumbnail_mime = Column(String(50), nullable=True)
+
     reply_to_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
     is_deleted = Column(Boolean, default=False)
     is_pinned = Column(Boolean, default=False, nullable=False)
@@ -57,7 +67,35 @@ class Message(Base):
     read_statuses = relationship("MessageReadStatus", back_populates="message", cascade="all, delete-orphan")
     
     def to_dict(self, include_sender: bool = True, include_reactions: bool = True) -> dict:
-        """Chuyển đổi sang dictionary"""
+        """Chuyển đổi sang dictionary. media_data LONGBLOB -> base64 data URI."""
+        # Neu co media_data thi encode thanh data URI (de client hien thi truc tiep).
+        # Neu khong co ma co media_url (legacy) thi giu nguyen.
+        media_data_uri = None
+        thumbnail_data_uri = None
+        if not self.is_deleted and self.media_data is not None and self.media_mime:
+            try:
+                import base64
+                media_data_uri = f"data:{self.media_mime};base64,{base64.b64encode(self.media_data).decode()}"
+            except Exception:
+                media_data_uri = None
+        if not self.is_deleted and self.thumbnail_data is not None and self.thumbnail_mime:
+            try:
+                import base64
+                thumbnail_data_uri = f"data:{self.thumbnail_mime};base64,{base64.b64encode(self.thumbnail_data).decode()}"
+            except Exception:
+                thumbnail_data_uri = None
+
+        # Uu tien media_data (BLOB noi sinh), fallback media_url (URL ngoai)
+        if self.is_deleted:
+            media_url_out = None
+            thumbnail_url_out = None
+        elif media_data_uri:
+            media_url_out = media_data_uri
+            thumbnail_url_out = thumbnail_data_uri
+        else:
+            media_url_out = self.media_url
+            thumbnail_url_out = None
+
         data = {
             "id": str(self.id),
             "chat_id": str(self.chat_id),
@@ -65,8 +103,10 @@ class Message(Base):
             "content": "" if self.is_deleted else self.content,
             "type": self.type,
             "status": self.status,
-            "media_url": None if self.is_deleted else self.media_url,
-            "thumbnail_url": None if self.is_deleted else self.thumbnail_url,
+            "media_url": media_url_out,
+            "media_mime": None if self.is_deleted else self.media_mime,
+            "media_size": None if self.is_deleted else self.media_size,
+            "thumbnail_url": thumbnail_url_out,
             "reply_to_id": str(self.reply_to_id) if self.reply_to_id else None,
             "is_deleted": self.is_deleted,
             "is_pinned": self.is_pinned,

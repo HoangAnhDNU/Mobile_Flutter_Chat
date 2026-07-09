@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 
+import 'core/constants/app_config.dart';
 import 'core/constants/app_routes.dart';
 import 'core/services/api_service.dart';
 import 'core/themes/app_theme.dart';
@@ -24,6 +26,16 @@ import 'features/friends/screens/friends_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load file .env (đã khai báo trong pubspec.yaml assets) trước khi bất kỳ
+  // module nào đọc AppConfig để đảm bảo host/port backend được cấu hình
+  // đúng từ đầu.
+  try {
+    await dotenv.load(fileName: '.env');
+  } catch (e) {
+    debugPrint('dotenv load failed: $e');
+  }
+  AppConfig.debugPrintConfig();
 
   try {
     await ApiService.init();

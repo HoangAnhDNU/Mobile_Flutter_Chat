@@ -46,6 +46,8 @@ class MessageResponse(BaseModel):
     type: str = "text"
     status: str = "sent"
     media_url: Optional[str] = None
+    media_mime: Optional[str] = None
+    media_size: Optional[int] = None
     thumbnail_url: Optional[str] = None
     reply_to_id: Optional[str] = None
     reactions: List[ReactionResponse] = []

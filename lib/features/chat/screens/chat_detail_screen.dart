@@ -9,7 +9,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
+// `dart:html` chỉ tồn tại trên web; import có điều kiện để tránh lỗi build mobile.
+import 'web_audio_stub.dart'
+    if (dart.library.html) 'web_audio_html.dart' as web_audio;
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_config.dart';
 import '../../../core/constants/app_routes.dart';
@@ -714,13 +717,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
 
   Future<void> _startRecording() async {
     try {
-      if (!(await _recorder.hasPermission())) {
+      // permission_handler hoạt động cả web & mobile. Trên web thì trả về
+      // PermissionStatus.granted ngay; trên Android 6+ sẽ hiện dialog xin quyền.
+      final micStatus = await Permission.microphone.request();
+      debugPrint('[ChatDetail] microphone permission status: $micStatus');
+      if (!micStatus.isGranted) {
         if (!mounted) return;
+        final msg = micStatus.isPermanentlyDenied
+            ? 'Quyền micro bị từ chối vĩnh viễn. Vào Cài đặt > Ứng dụng > Mobile Flutter Chat > Quyền để bật Micro.'
+            : AppLocalizations.of(context).translate('mic_permission_denied');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context).translate('mic_permission_denied'))),
+          SnackBar(content: Text(msg)),
         );
         return;
       }
+
       _recordDuration = 0;
       _amplitudes.clear();
 
@@ -761,48 +772,96 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
     _recordTimer?.cancel();
     await _amplitudeSubscription?.cancel();
 
-    String voiceBase64;
-    if (kIsWeb) {
-      final blobUrl = await _recorder.stop();
-      if (blobUrl == null || blobUrl.isEmpty) {
+    Uint8List audioBytes = Uint8List(0);
+    String? sourceMime;
+    try {
+      if (kIsWeb) {
+        final blobUrl = await _recorder.stop();
         setState(() => _isRecording = false);
-        return;
+        if (blobUrl == null || blobUrl.isEmpty) return;
+        // package:http khong fetch duoc blob URL; dung helper dung dart:html.
+        audioBytes = await web_audio.readBlobBytes(blobUrl);
+        // Tren web, MediaRecorder thuong ma hoa thanh Opus/WebM hoac WAV.
+        // Doc magic bytes de xac dinh mime that su, tranh ghi nham audio/m4a.
+        sourceMime = _detectAudioMime(audioBytes, fallback: 'audio/webm');
+      } else {
+        final path = await _recorder.stop();
+        setState(() => _isRecording = false);
+        if (path == null || path.isEmpty) return;
+        final file = File(path);
+        if (!await file.exists()) return;
+        audioBytes = await file.readAsBytes();
+        // Lay mime theo phan mo rong that su cua file ghi am
+        final ext = path.toLowerCase();
+        if (ext.endsWith('.m4a')) {
+          sourceMime = 'audio/mp4';
+        } else if (ext.endsWith('.aac')) {
+          sourceMime = 'audio/aac';
+        } else if (ext.endsWith('.wav')) {
+          sourceMime = 'audio/wav';
+        } else if (ext.endsWith('.webm')) {
+          sourceMime = 'audio/webm';
+        } else if (ext.endsWith('.mp3')) {
+          sourceMime = 'audio/mpeg';
+        } else {
+          sourceMime = _detectAudioMime(audioBytes, fallback: 'audio/mp4');
+        }
+        await file.delete();
       }
-      // Fetch bytes from blob URL
-      final response = await http.get(Uri.parse(blobUrl));
-      voiceBase64 = base64Encode(response.bodyBytes);
-      setState(() => _isRecording = false);
-    } else {
-      final path = await _recorder.stop();
-      setState(() => _isRecording = false);
-      if (path == null || path.isEmpty) return;
-      final file = File(path);
-      if (!await file.exists()) return;
-      final bytes = await file.readAsBytes();
-      voiceBase64 = base64Encode(bytes);
-      await file.delete();
+    } catch (e, st) {
+      debugPrint('Stop recording error: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Loi khi doc ban ghi am: $e')),
+      );
+      return;
+    }
+
+    if (audioBytes.isEmpty) {
+      debugPrint('[ChatDetail] Voice capture produced 0 bytes');
+      return;
     }
 
     if (!mounted) return;
     final authProvider = context.read<AuthProvider>();
     if (authProvider.uid == null) return;
 
-    final audioDataUri = 'data:audio/m4a;base64,$voiceBase64';
+    final voiceBase64 = base64Encode(audioBytes);
+    final audioDataUri = 'data:$sourceMime;base64,$voiceBase64';
 
-    await ApiService.sendMessage(
-      chatId: _chatId,
-      senderUid: authProvider.uid!,
-      senderName: authProvider.displayName ?? 'Unknown',
-      text: '',
-      messageType: 'voice',
-      voiceBase64: voiceBase64,
-      voiceDuration: _recordDuration * 1000,
-    );
+    Map<String, dynamic> sentMsg = const {};
+    try {
+      sentMsg = await ApiService.sendMessage(
+        chatId: _chatId,
+        senderUid: authProvider.uid!,
+        senderName: authProvider.displayName ?? 'Unknown',
+        text: '',
+        messageType: 'voice',
+        voiceBase64: voiceBase64,
+        voiceDuration: _recordDuration * 1000,
+      );
+    } catch (e, st) {
+      debugPrint('[ChatDetail] Voice send FAILED: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Khong the gui ghi am (co the do ban ghi qua dai). Hay thu lai voi ban ghi ngan hon.',
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+    debugPrint('[ChatDetail] Voice message sent - duration: ${_recordDuration}s, base64 length: ${voiceBase64.length}, mime=$sourceMime');
 
-    final tempId = DateTime.now().millisecondsSinceEpoch;
+    // Uu tien dung message_id tu backend neu co, tranh duplicate id khi socket emit.
+    final backendId = sentMsg.isNotEmpty ? sentMsg['id']?.toString() : null;
+    final tempId = backendId ?? DateTime.now().millisecondsSinceEpoch.toString();
 
     final newMsg = <String, dynamic>{
-      'id': tempId,
+      'id': int.tryParse(tempId) ?? tempId,
       'text': '',
       'sender_uid': authProvider.uid!,
       'sender_name': authProvider.displayName ?? 'Unknown',
@@ -810,7 +869,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       'created_at': DateTime.now().toIso8601String(),
       'is_edited': false,
       'message_type': 'voice',
-      'imageUrl': audioDataUri,
+      // Neu API tra ve media_url (data URI BLOB) thi dung luon cho khop voi nguoi nhan.
+      'imageUrl': sentMsg.isNotEmpty && sentMsg['imageUrl'] != null
+          ? sentMsg['imageUrl']
+          : audioDataUri,
       'image_base64': null,
       'voice_duration': _recordDuration * 1000,
       'delivery_status': 'sent',
@@ -830,6 +892,37 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with SingleTickerPr
       _scrollToLatest();
     }
   }
+
+  /// Đoán MIME type audio bằng magic bytes để khớp với codec thực tế mà
+  /// trình duyệt / MediaRecorder sinh ra (đặc biệt trên web).
+  String _detectAudioMime(Uint8List bytes, {required String fallback}) {
+    if (bytes.length < 12) return fallback;
+    // WAV: "RIFF"...."WAVE"
+    if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
+        bytes[8] == 0x57 && bytes[9] == 0x41 && bytes[10] == 0x56 && bytes[11] == 0x45) {
+      return 'audio/wav';
+    }
+    // WebM/Matroska: 1A 45 DF A3
+    if (bytes[0] == 0x1A && bytes[1] == 0x45 && bytes[2] == 0xDF && bytes[3] == 0xA3) {
+      return 'audio/webm';
+    }
+    // Ogg: "OggS"
+    if (bytes[0] == 0x4F && bytes[1] == 0x67 && bytes[2] == 0x67 && bytes[3] == 0x53) {
+      return 'audio/ogg';
+    }
+    // MP4/M4A: box "ftyp" tai offset 4
+    if (bytes.length > 8 &&
+        bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70) {
+      return 'audio/mp4';
+    }
+    // MP3: "ID3" hoac frame sync 0xFF 0xFB/0xFA/...
+    if ((bytes[0] == 0x49 && bytes[1] == 0x44 && bytes[2] == 0x33) ||
+        (bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0)) {
+      return 'audio/mpeg';
+    }
+    return fallback;
+  }
+
 
   Future<void> _cancelRecording() async {
     _recordTimer?.cancel();

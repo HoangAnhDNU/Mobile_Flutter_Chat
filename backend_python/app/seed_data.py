@@ -26,18 +26,46 @@ AVATAR_DIR = os.path.normpath(
 
 
 def load_avatar_data_uri(filename: str) -> str | None:
-    """Đọc file ảnh PNG và chuyển thành data URI base64.
-
-    Flutter đã hỗ trợ hiển thị ảnh dạng 'data:image/...;base64,...' nên lưu
-    thẳng vào avatar_url là cách gọn nhất, không cần serve file tĩnh.
-    """
     path = os.path.join(AVATAR_DIR, filename)
     if not os.path.isfile(path):
-        print(f"⚠️  Không tìm thấy avatar: {path}")
+        print(f"Khong tim thay avatar: {path}")
         return None
     with open(path, "rb") as f:
         encoded = base64.b64encode(f.read()).decode("utf-8")
     return f"data:image/png;base64,{encoded}"
+
+
+# Thu muc chua file media mau (dat cung images_avatar/)
+MEDIA_DIR = AVATAR_DIR
+
+
+def load_media_binary(filename: str) -> bytes | None:
+    path = os.path.join(MEDIA_DIR, filename)
+    if not os.path.isfile(path):
+        print(f"Khong tim thay media: {path}")
+        return None
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _detect_mime(filename: str) -> str:
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    return {
+        "m4a": "audio/m4a",
+        "aac": "audio/aac",
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "webm": "audio/webm",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "gif": "image/gif",
+        "webp": "image/webp",
+    }.get(ext, "application/octet-stream")
+
+
+SEED_VOICE_FILE = "sample_voice.wav"
+SEED_IMAGE_FILE = "sample_image.jpg"
 
 
 async def seed_users(session):
@@ -217,12 +245,40 @@ async def seed_messages(session, chats, users):
     msg3 = Message(
         chat_id=chats[0].id,
         sender_id=users[0].id,
-        content="Đây là ảnh demo giao diện mới",
+        content="Day la anh demo giao dien moi",
         type="image",
         status="delivered",
         created_at=datetime.now() - timedelta(minutes=35),
     )
+    # Gan anh BLOB (anh demo UI moi)
+    _seed_img_bytes = load_media_binary(SEED_IMAGE_FILE)
+    if _seed_img_bytes:
+        msg3.media_data = _seed_img_bytes
+        msg3.media_mime = _detect_mime(SEED_IMAGE_FILE)  # image/jpeg
+        msg3.media_size = len(_seed_img_bytes)
+    else:
+        print("Khong co anh mau, msg3 chi luu text")
     session.add(msg3)
+    await session.flush()
+
+    # Voice message mau de test BLOB audio
+    msg3_voice = Message(
+        chat_id=chats[0].id,
+        sender_id=users[0].id,
+        content="[Tin nhan thoai]",
+        type="voice",
+        status="read",
+        voice_duration=2000,
+        created_at=datetime.now() - timedelta(minutes=33),
+    )
+    _seed_voice_bytes = load_media_binary(SEED_VOICE_FILE)
+    if _seed_voice_bytes:
+        msg3_voice.media_data = _seed_voice_bytes
+        msg3_voice.media_mime = _detect_mime(SEED_VOICE_FILE)  # audio/wav
+        msg3_voice.media_size = len(_seed_voice_bytes)
+    else:
+        print("Khong co voice mau, msg3_voice chi luu text")
+    session.add(msg3_voice)
     await session.flush()
     
     msg4 = Message(
@@ -322,19 +378,28 @@ async def clear_all_data(session):
     print("✅ Đã xóa toàn bộ dữ liệu cũ")
 
 
-async def migrate_longtext_columns(session):
-    """Đổi các cột lưu ảnh base64 sang LONGTEXT.
+async def migrate_media_columns(session):
+    """Migration cac cot media/audio/image -> BLOB nhi phan trong MySQL.
 
-    Code First (create_all) không tự sửa kiểu cột của bảng đã tồn tại,
-    nên cần ALTER thủ công để chứa được ảnh base64 lớn (> 64KB).
+    Schema moi:
+      - users/chats.avatar_url: van LONGTEXT (avatar luu data URI base64).
+      - messages.media_data: LONGBLOB (file nhi phan tho, toi da 4GB).
+      - messages.media_mime: VARCHAR(50).
+      - messages.media_size: INT.
+      - messages.thumbnail_data: MEDIUMBLOB.
+      - messages.thumbnail_mime: VARCHAR(50).
+      - messages.media_url: VARCHAR(500) (legacy URL ngoai).
     """
-    print("🔧 Đang nâng cấp cột ảnh sang LONGTEXT...")
+    print("Dang migration cot media sang BLOB...")
     alters = [
         "ALTER TABLE users MODIFY avatar_url LONGTEXT NULL",
         "ALTER TABLE chats MODIFY avatar_url LONGTEXT NULL",
-        "ALTER TABLE messages MODIFY media_url LONGTEXT NULL",
-        "ALTER TABLE messages MODIFY thumbnail_url LONGTEXT NULL",
-        # Thêm cột phân quyền/khóa tài khoản nếu chưa có
+        "ALTER TABLE messages MODIFY media_url VARCHAR(500) NULL",
+        "ALTER TABLE messages ADD COLUMN media_data LONGBLOB NULL",
+        "ALTER TABLE messages ADD COLUMN media_mime VARCHAR(50) NULL",
+        "ALTER TABLE messages ADD COLUMN media_size INT NULL",
+        "ALTER TABLE messages ADD COLUMN thumbnail_data MEDIUMBLOB NULL",
+        "ALTER TABLE messages ADD COLUMN thumbnail_mime VARCHAR(50) NULL",
         "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'",
         "ALTER TABLE users ADD COLUMN is_locked TINYINT(1) NOT NULL DEFAULT 0",
     ]
@@ -342,9 +407,9 @@ async def migrate_longtext_columns(session):
         try:
             await session.execute(text(stmt))
         except Exception as e:
-            print(f"⚠️  Bỏ qua ALTER ({stmt}): {e}")
+            print(f"Bo qua ALTER ({stmt}): {e}")
     await session.commit()
-    print("✅ Đã nâng cấp cột ảnh")
+    print("Da migration cot media xong")
 
 
 async def seed_all():
@@ -366,7 +431,7 @@ async def seed_all():
                 await clear_all_data(session)
 
                 # Nâng cấp cột ảnh sang LONGTEXT (để chứa avatar base64)
-                await migrate_longtext_columns(session)
+                await migrate_media_columns(session)
 
                 # Tạo dữ liệu mới
                 users = await seed_users(session)
@@ -384,7 +449,7 @@ async def seed_all():
                 print("\n📊 Thống kê:")
                 print(f"  - Users: 5 (1 admin + 4 user)")
                 print(f"  - Chats: 2 (1 chat 1-1, 1 nhóm)")
-                print(f"  - Messages: 7")
+                print(f"  - Messages: 8 (co voice + image BLOB)")
                 print(f"  - Reactions: 3")
                 print(f"  - Read Status: 2")
                 print("\n🔑 Tài khoản test:")
